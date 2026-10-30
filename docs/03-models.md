@@ -1,4 +1,4 @@
-> 模块 3 / 18 · [返回索引](../README.md) · [上一模块](02-config.md) · [下一模块](04-prompt.md)
+> 模块 3 / 19 · [返回索引](../README.md) · [上一模块](02-config.md) · [下一模块](04-prompt.md)
 
 # 5. 模型与 Provider
 

@@ -1,4 +1,4 @@
-> 模块 14 / 18 · [返回索引](../README.md) · [上一模块](13-observability.md) · [下一模块](15-testing.md)
+> 模块 14 / 19 · [返回索引](../README.md) · [上一模块](13-observability.md) · [下一模块](15-testing.md)
 
 # 16. 工程实现约束
 
@@ -26,6 +26,7 @@ pkg/                             # v1 保留为空，不承诺公共 API
 ```
 
 - 依赖方向：`cli → agent/statemachine → tool/provider/session → model/config`；禁止反向依赖。
+- 各包对外接口、构造函数与装配顺序见 [§21](19-interfaces.md#21-模块接口与串联实现契约)：接口由使用方定义，`cli` 是唯一组合根（[D43](17-adr.md#19-设计决策记录adr)）。
 - `internal/readcode` 与工具实现分离，便于单测。
 - `pkg/` 不作为库承诺；避免过早固定 API。
 

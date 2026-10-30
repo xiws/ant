@@ -1,4 +1,4 @@
-> 模块 1 / 18 · [返回索引](../README.md) · [上一模块](00-overview.md) · [下一模块](02-config.md)
+> 模块 1 / 19 · [返回索引](../README.md) · [上一模块](00-overview.md) · [下一模块](02-config.md)
 
 # 3. CLI 规格
 

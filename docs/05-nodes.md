@@ -1,4 +1,4 @@
-> 模块 5 / 18 · [返回索引](../README.md) · [上一模块](04-prompt.md) · [下一模块](06-state-machine.md)
+> 模块 5 / 19 · [返回索引](../README.md) · [上一模块](04-prompt.md) · [下一模块](06-state-machine.md)
 
 # 7. Agent Node
 

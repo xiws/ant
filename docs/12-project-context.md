@@ -1,4 +1,4 @@
-> 模块 12 / 18 · [返回索引](../README.md) · [上一模块](11-fault-tolerance.md) · [下一模块](13-observability.md)
+> 模块 12 / 19 · [返回索引](../README.md) · [上一模块](11-fault-tolerance.md) · [下一模块](13-observability.md)
 
 # 14. 项目级上下文自动初始化
 

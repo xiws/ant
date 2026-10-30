@@ -1,4 +1,4 @@
-> 模块 4 / 18 · [返回索引](../README.md) · [上一模块](03-models.md) · [下一模块](05-nodes.md)
+> 模块 4 / 19 · [返回索引](../README.md) · [上一模块](03-models.md) · [下一模块](05-nodes.md)
 
 # 6. Prompt 体系
 
