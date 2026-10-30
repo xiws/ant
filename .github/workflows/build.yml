@@ -10,13 +10,13 @@ permissions:
 
 env:
   # ===== 全局可配置项 =====
-  APP_NAME: notify                 # 产物前缀
-  MAIN_PKG: ./cmd/notify             # 主包路径
+  APP_NAME: ant # 产物前缀
+  MAIN_PKG: ./cmd/ant             # 主包路径
   GO_VERSION: "1.26.8"            # 用 x 命中缓存
   RELEASE_TAG: latest             # release tag
   RELEASE_NAME: Latest Build
   BUILD_FLAGS: -trimpath -ldflags="-s -w"
-  PROJECT_PATH: https://github.com/xiws/SimpleNotify
+  PROJECT_PATH: https://github.com/xiws/ant
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
