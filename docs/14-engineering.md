@@ -79,27 +79,13 @@ pkg/                             # v1 保留为空，不承诺公共 API
 
 ## 16.6 构建与 CI
 
-**已知问题**：当前 `.github/workflows/build.yml` 来自另一个项目（`notify` / `./cmd/notify` / `SimpleNotify`），与本仓库不匹配：
+**已修正的已知问题**：此前的 `.github/workflows/build.yml` 来自另一个项目（`notify` / `./cmd/notify` / `SimpleNotify`），与本仓库不匹配。抽象层实现中已按下列规格替换：
 
-- `APP_NAME=notify`、`MAIN_PKG=./cmd/notify`：本仓库没有该包，构建会失败；
-- `PROJECT_PATH` 指向 `SimpleNotify`；
-- 末尾的 `notify` job 使用与本项目无关的 SMTP secrets。
-
-**本文档要求的 CI 规格**（本次不修改文件，留给实现任务）：
-
-1. 触发：`push` 到 `main`、`pull_request`、`workflow_dispatch`、tag `v*`。
-2. `test` job：
-   - `gofmt -l .`（无输出）；
-   - `go vet ./...`；
-   - `go test ./...`；
-   - Linux 上 `go test -race ./...`。
-3. `build` job 矩阵：
-   - `linux/amd64`、`linux/arm64`、`darwin/amd64`、`darwin/arm64`、`windows/amd64`；
-   - `CGO_ENABLED=0`；`-trimpath -ldflags "-s -w -X .../version.Version=<tag>"`；
-   - 产物命名 `ant-<goos>-<goarch>[.exe]`。
-4. `release` job：仅在 tag 时创建 release，上传产物。
-5. 删除与本项目无关的 `notify` job。
-6. 不把真实 API key 写入 CI；测试用 fake provider。
+- 触发：`push` 到 `main`、`pull_request`、`workflow_dispatch`、tag `v*`；
+- `test` job：`gofmt -l .`（无输出）、`go vet ./...`、`go test ./...`、Linux `go test -race ./...`；
+- `build` job 矩阵：`linux/amd64`、`linux/arm64`、`darwin/amd64`、`darwin/arm64`、`windows/amd64`，`CGO_ENABLED=0`，`-trimpath -ldflags "-s -w -X .../version.Version=<tag>"`，产物 `ant-<goos>-<goarch>[.exe]`；
+- `release` job：仅在 tag 时创建 release 并上传产物；
+- 已删除与本项目无关的 `notify` job 与 SMTP secrets；测试使用 fake provider，不写真实 API key。
 
 ## 16.7 安装与发布
 

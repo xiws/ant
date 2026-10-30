@@ -34,3 +34,9 @@ go.work.sum
 .idea/
 .code
 bin/
+# local go build cache (sandbox)
+.gocache/
+.gomodcache/
+.ant/logs/
+.ant/sessions/
+.ant/project.lock

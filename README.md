@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 版本 | v1.2（设计规格，待实现；文档按模块拆分） |
+| 版本 | v1.3（设计规格；抽象层已实现；文档按模块拆分） |
 | 仓库 | `github.com/xiws/ant` |
 | 基线 | Go 1.26.8；macOS / Linux / Windows |
 | 文档目的 | 把原始需求补全为可直接指导实现、可验收的设计规格 |
@@ -12,7 +12,7 @@
 | 规范用语 | **必须** = MUST，**应该** = SHOULD，**可以** = MAY |
 | 结构 | 本 README 为索引；正文按 20 个模块（0–19）拆分在 `docs/` |
 
-本文档是原始 README 的补全版，也是后续实现的唯一事实来源。实现代码尚未开始。原始 3,000 行长文已按模块拆分，本页只保留索引、阅读路径和关键提示。
+本文档是原始 README 的补全版，也是后续实现的唯一事实来源。v1.3 的**抽象层与组合根已落地**（`internal/`），可编译、可测试，并用 fake provider 跑通一次完整 turn；生产适配器与部分工具执行体按“实现顺序”继续推进。
 
 ## 安全提示
 
@@ -91,6 +91,44 @@
 7. 跨平台与 CI。
 
 任何偏离本文档的设计，应在 [ADR](docs/17-adr.md) 增加一条决策，而不是静默修改实现。
+
+## 实现进度（抽象层）
+
+第 0 步已完成：`internal/` 下各模块的接口、共享词汇与组合根可编译，`internal/provider/fake` 能驱动 `cli.New` 跑通一次 turn（`go test ./internal/cli`）。
+
+| 模块 | 当前状态 |
+| --- | --- |
+| `internal/model` | 已实现：消息/工具/事件/错误/用量/verdict 等共享词汇 |
+| `internal/config` | 已实现：默认值、home/workspace/CLI 逐层深合并、`null` 回落、校验、来源标注、密钥打码 |
+| `internal/provider` | 装配面已实现：Registry/Router/Client/Retrier/Fallback + fake；`openai-completions`/`otter` 适配器返回 `adapter_not_implemented`（下一步） |
+| `internal/prompt` | 已实现：稳定前缀→易变尾部、hash、内置 prompt 与文件覆盖；模式 overlay 不可覆盖 |
+| `internal/context` | 已实现：预算公式、估算、配对安全截断、摘要接口、成本计算 |
+| `internal/session` | 已实现：文件系统 store、事件/artifact、心跳锁、恢复与 tool 配对修复 |
+| `internal/tool` | 流水线已实现：权限、修复、校验、审批、并发、截断、事件；7 个内置 Spec 完整，`ask` 已接 Prompter，read/search/edit/write/bash 执行体为占位（下一步） |
+| `internal/readcode` | 接口已冻结；实现返回 `unsupported_language` 占位（下一步） |
+| `internal/approval` | 已实现：硬拒绝、deny/allow glob、Grants、非交互、交互提示接口 |
+| `internal/agent` | 已实现：5 个节点共享 baseNode、工具循环、契约解析、循环检测、事件 |
+| `internal/statemachine` | 已实现：4 张内置图、fan-out/join、轮次、Plan gate、Resume、退出码 |
+| `internal/projectctx` | 已实现：扫描、hash 失效、确定性骨架、标记保护、原子写与锁；模型摘要待接 |
+| `internal/logx` | 已实现：分级日志、打码、NDJSON 扇出、用量聚合 |
+| `internal/cli` | 已实现：参数/子命令/REPL/`Renderer`/`Prompter`/组合根与退出码映射 |
+| `cmd/ant` | 已实现：薄入口 `os.Exit(cli.Run(...))` |
+
+实现期对 [§21](docs/19-interfaces.md) 的增量（均为字段级、见 [D44](docs/17-adr.md#19-设计决策记录adr)）：
+
+- `agent.Deps` 增加 `Config`/`Project`/`OnDelta`/`OnText`；`tool.Deps` 增加 `Prompter`/`Index`。
+- `config.Settings` 增加运行期字段（`CLIModel`/`CLINodeModels`/`Yes`/`NonInteractive`，不落盘）；`statemachine.TurnInput/ResumeState` 增加 `Summary`，把 session 折叠摘要转交 `NodeInput.SessionSummary`。
+- `session` 额外提供 `NewStoreWithClock` 便于测试；`provider/fake` 是测试替身，不属于生产协议。
+
+已知限制（下一步按实现顺序补齐）：provider 真实适配器、`read`/`search`/`edit`/`write`/`bash` 执行体、`read_code` 索引、`plan.md` 落盘（`TurnResult.PlanPath` 目前只给位置）、`ResumeState.Done` 的透传（session 暂无 Done 字段）、`projectctx` 的模型摘要。
+
+验证命令（本机无需网络）：
+
+```bash
+go build ./...
+go test ./...
+go test -race ./...
+```
 
 ## 变更记录
 

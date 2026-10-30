@@ -1,29 +1,50 @@
-name: Build Latest
+name: build
 
 on:
   push:
     branches: ["main"]
+    tags: ["v*"]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: write
 
 env:
-  # ===== 全局可配置项 =====
-  APP_NAME: ant # 产物前缀
-  MAIN_PKG: ./cmd/ant             # 主包路径
-  GO_VERSION: "1.26.8"            # 用 x 命中缓存
-  RELEASE_TAG: latest             # release tag
-  RELEASE_NAME: Latest Build
-  BUILD_FLAGS: -trimpath -ldflags="-s -w"
-  PROJECT_PATH: https://github.com/xiws/ant
+  APP_NAME: ant
+  MAIN_PKG: ./cmd/ant
+  GO_VERSION: "1.26.8"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then
+            echo "以下文件未格式化："
+            echo "$out"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+      - name: go test -race
+        run: go test -race ./...
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -50,7 +71,6 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
@@ -58,16 +78,18 @@ jobs:
           CGO_ENABLED: "0"
           VERSION: ${{ github.ref_name }}
         run: |
-          OUT="${APP_NAME}-${GOOS}-${GOARCH}${EXT:-${{ matrix.ext }}}"
-          go build ${{ env.BUILD_FLAGS }} -o "dist/$OUT" ${{ env.MAIN_PKG }}
-          echo "OUT=$OUT" >> $GITHUB_ENV
-
+          OUT="${APP_NAME}-${GOOS}-${GOARCH}${{ matrix.ext }}"
+          LD="-s -w -X github.com/xiws/ant/internal/version.Version=${VERSION} -X github.com/xiws/ant/internal/version.Commit=${GITHUB_SHA::7} -X github.com/xiws/ant/internal/version.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          go build -trimpath -ldflags "$LD" -o "dist/$OUT" "${MAIN_PKG}"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.OUT }}
           path: dist/${{ env.OUT }}
+          if-no-files-found: error
 
   release:
+    if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -77,24 +99,6 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: ${{ env.RELEASE_NAME }}
-          prerelease: true
-          make_latest: false
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           files: dist/*
-
-  notify:
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Send mail
-        env:
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASS: ${{ secrets.SMTP_PASS }}
-        run: |
-          curl --url "smtps://smtp.163.com:465" \
-            --user "${SMTP_USER}:${SMTP_PASS}" \
-            --mail-from "${SMTP_USER}" \
-            --mail-rcpt "${SMTP_USER}" \
-            --ssl-reqd \
-            -T <(printf 'From: %s\nTo: %s\nSubject: deploy\n\n%s\n' "$SMTP_USER" "$SMTP_USER" "$env.APP_NAME" )

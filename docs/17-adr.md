@@ -47,6 +47,7 @@
 | D41 | `read_code` 用 Go AST 静态分析，符号歧义报错 | 换 token 省成本；歧义猜测会喂错代码 | 依赖 gopls/LSP |
 | D42 | 工程约束：stdlib 优先、固定包结构、CI 重写规格 | 控制依赖与跨平台风险；现有 CI 不可用 | 引入 agent 框架/数据库 |
 | D43 | 模块间以内部接口对接（消费者定义），`cli` 为唯一组合根；接口契约集中在 §21 | 边界先冻结才能并行实现；fake 可替换，协议不变量只写一处 | 直接依赖具体类型（无法单测/替换）；用 DI 框架（依赖关系不可读） |
+| D44 | 抽象层落地时增加字段级注入面：`agent.Deps`（Config/Project/OnDelta/OnText）、`tool.Deps`（Prompter/Index）、`TurnInput/ResumeState.Summary`、`EnsureOptions.Explicit`、`config.Paths` | 让 baseNode/工具不反向 import 上层或终端；保持接口与依赖方向不变 | 让节点直接 import cli/statemachine（循环依赖）；把 Renderer/Prompter 塞进 model（词汇表污染） |
 
 ---
 

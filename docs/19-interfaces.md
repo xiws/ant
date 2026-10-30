@@ -458,6 +458,13 @@ type View interface {
 	Warnings() []string
 }
 
+// Paths 是可选的文件位置面：prompt/projectctx 需要读 home/workspace 文件，
+// 但不需要把路径塞进 View 的必选方法（测试可只实现 View）。
+type Paths interface {
+	WorkDir() string
+	HomeDir() string
+}
+
 type Origin string
 
 const (
@@ -1021,12 +1028,16 @@ type Deps struct {
 	Guard    PathGuard
 	Versions VersionTable
 	Approver approval.Approver // tool → approval 单向依赖
+	Prompter approval.Prompter // ask 工具使用；由 cli 实现
+	Index    readcode.Index    // read_code 工具使用
 	Sink     model.EventSink
 	Store    model.ArtifactStore
 }
 
 func NewToolkit(cfg config.View, deps Deps) *Toolkit
 ```
+
+> **实现期增量**：`Prompter` 与 `Index` 是为了让内置 `ask` / `read_code` 工具不经 `cli`/`agent` 反向依赖即可工作（R1/R4）。`Deps` 只增字段，不改变 Toolkit/Runtime 的对外契约；见 [D44](17-adr.md#19-设计决策记录adr)。
 
 **流水线阶段 → 接口**（[§10.1](08-tools.md#101-通用契约) 11 步）：
 
@@ -1290,6 +1301,10 @@ type Deps struct {
 	Store        model.ArtifactStore
 	Loop         LoopDetector
 	Clock        func() time.Time
+	Config       config.View         // limits / sandbox.shell / 运行时信息
+	Project      func() prompt.ProjectDoc // 当前 project.md 投影；可为 nil
+	OnDelta      func(provider.Delta) error // 流式增量 → cli.Renderer
+	OnText       func(text string)          // 非流式响应最终文本 → Renderer
 }
 
 // baseNode 实现 Node.Run：组装 → 模型 → 工具循环 → 契约解析 → 事件。
@@ -1306,6 +1321,8 @@ type NodeSpec struct {
 	MaxToolTurns  int             // 默认 limits.maxToolTurns
 }
 ```
+
+> **实现期增量**：`Deps` 新增 `Config`/`Project`/`OnDelta`/`OnText` 四个注入点。前两者让 baseNode 在不 import `statemachine`/`projectctx` 的前提下拿到限额与项目上下文（R1）；后两者把流式与非流式文本交给 `cli.Renderer`，避免 agent 接触终端（R4）。均为字段增量，不改变 `Node` 接口。
 
 **节点内循环**（[§7.7](05-nodes.md#77-预算与重试)）：
 
@@ -1472,6 +1489,7 @@ func NewBuilder(cfg config.View, p provider.Provider, log logx.Logger) Builder
 type EnsureOptions struct {
 	Force        bool
 	SkipIfFresh  bool
+	Explicit     bool // `ant init`：project.autoInit=false 时也生成
 	Progress     func(stage string)
 }
 
