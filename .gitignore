@@ -40,3 +40,4 @@ bin/
 .ant/logs/
 .ant/sessions/
 .ant/project.lock
+ant
