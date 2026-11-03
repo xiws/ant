@@ -1,5 +1,5 @@
 {
   "schemaVersion": 1,
-  "defaultModel": "qwen3.7-flash-2026-07-15",
+  "defaultModel": "qwen3.7-flash_snap",
   "log": { "level": "info", "format": "text", "file": "" }
 }

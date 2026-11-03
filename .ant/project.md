@@ -25,8 +25,6 @@ ant 需求与设计规格
 .gitignore
 README.md
 cmd/
-cmd/ant/
-cmd/ant/main.go
 docs/
 docs/00-overview.md
 docs/01-cli.md
@@ -139,12 +137,14 @@ internal/statemachine/
 internal/statemachine/budget.go
 internal/statemachine/engine.go
 internal/statemachine/engine_test.go
-...（已省略 19 项）
+internal/statemachine/graphs.go
+internal/statemachine/plangate.go
+...（已省略 18 项）
 ```
 
 ## 入口
 
-- `cmd/ant`
+未检测到明显入口（可检查 cmd/、main.go、package.json scripts）。
 
 ## 构建 / 测试 / Lint
 
@@ -164,7 +164,6 @@ internal/statemachine/engine_test.go
 - `go.mod`
 - `makefile`
 - `.github/workflows/build.yml`
-- `cmd/ant/main.go`
 
 ## 已知坑
 
