@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"reflect"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -111,7 +112,7 @@ func parseSchema(raw json.RawMessage) (*schemaNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(n.Types) > 0 && !containsString(n.Types, "object") {
+	if len(n.Types) > 0 && !slices.Contains(n.Types, "object") {
 		return nil, fmt.Errorf("schema 根类型必须是 object，收到 %q", strings.Join(n.Types, "|"))
 	}
 	return n, nil
@@ -595,22 +596,8 @@ func displayField(path string) string {
 	return path
 }
 
-func containsString(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
-}
-
 func sortedKeys(m map[string]*schemaNode) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(m))
 }
 
 func enumPreview(enum []any) string {

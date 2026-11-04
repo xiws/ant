@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"runtime"
@@ -497,7 +495,7 @@ func (n *baseNode) emitUsage(ctx context.Context, u model.Usage) error {
 func (n *baseNode) emitMessage(ctx context.Context, msg model.Message) error {
 	data := map[string]any{
 		"role":        msg.Role,
-		"contentHash": sha256String(msg.Content),
+		"contentHash": model.HashRefString(msg.Content),
 	}
 	if msg.Content != "" && n.deps.Store != nil {
 		ref, err := n.deps.Store.PutArtifact(ctx, n.nextArtifact("message", ".txt"), []byte(msg.Content), "text/plain")
@@ -537,7 +535,7 @@ func (n *baseNode) emitStepCompleted(ctx context.Context, in NodeInput, out Node
 		Node: n.spec.Name,
 		Step: n.stepName(in.Mode),
 		Data: model.MustJSON(map[string]any{
-			"node": n.spec.Name, "status": status, "outputHash": sha256String(out.Text),
+			"node": n.spec.Name, "status": status, "outputHash": model.HashRefString(out.Text),
 			"outputRef": outputRef, "usage": out.Usage, "promptHash": promptHash,
 			"toolCalls": out.ToolCalls, "changed": out.Changed,
 		}),
@@ -549,9 +547,4 @@ func (n *baseNode) stepName(mode model.Mode) string {
 		return string(n.spec.Name)
 	}
 	return string(mode) + "." + string(n.spec.Name)
-}
-
-func sha256String(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return "sha256:" + hex.EncodeToString(sum[:])
 }

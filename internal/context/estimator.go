@@ -15,30 +15,7 @@ type estimator struct{}
 func NewEstimator() Estimator { return estimator{} }
 
 func (estimator) Estimate(messages []model.Message, tools []model.ToolSpec) int {
-	total := 0
-	for _, m := range messages {
-		total += estimateText(m.Content)
-		for _, tc := range m.ToolCalls {
-			total += estimateText(tc.Name) + estimateText(string(tc.Arguments))
-		}
-	}
-	for _, t := range tools {
-		total += estimateText(t.Name) + estimateText(t.Description) + estimateText(string(t.Schema))
-	}
-	return total
-}
-
-// estimateText：ASCII 约 4 字符/token，CJK 约 1 字符/token（保守）。
-func estimateText(s string) int {
-	ascii, nonASCII := 0, 0
-	for _, r := range s {
-		if r < 128 {
-			ascii++
-		} else {
-			nonASCII++
-		}
-	}
-	return (ascii+3)/4 + nonASCII
+	return model.EstimateMessagesTokens(messages) + model.EstimateToolsTokens(tools)
 }
 
 type compactor struct{}
@@ -53,7 +30,7 @@ func (compactor) Compact(ctx context.Context, in CompactInput) (CompactOutput, e
 		return CompactOutput{}, err
 	}
 	out := CompactOutput{History: append([]model.Message(nil), in.History...), Summary: in.Summary}
-	out.BeforeTokens = estimateMessages(in.History)
+	out.BeforeTokens = model.EstimateMessagesTokens(in.History)
 	keepTurns := in.KeepRecentTurns
 	if keepTurns <= 0 {
 		keepTurns = 6
@@ -87,7 +64,7 @@ func (compactor) Compact(ctx context.Context, in CompactInput) (CompactOutput, e
 	kept = append(append([]model.Message(nil), system...), kept...)
 
 	// 仍然超预算时继续丢弃最旧轮次（至少保留最后一个）。
-	for in.Budget.InputBudget > 0 && estimateMessages(kept) > in.Budget.InputBudget && len(kept) > len(system)+1 {
+	for in.Budget.InputBudget > 0 && model.EstimateMessagesTokens(kept) > in.Budget.InputBudget && len(kept) > len(system)+1 {
 		idx := firstBodyIndex(kept, len(system))
 		if idx < 0 || idx >= len(kept)-1 {
 			break
@@ -99,7 +76,7 @@ func (compactor) Compact(ctx context.Context, in CompactInput) (CompactOutput, e
 	out.History = kept
 	out.Removed = removed
 	out.Compacted = len(removed) > 0
-	out.AfterTokens = estimateMessages(kept)
+	out.AfterTokens = model.EstimateMessagesTokens(kept)
 	return out, nil
 }
 
@@ -146,10 +123,6 @@ func firstBodyIndex(msgs []model.Message, skip int) int {
 		}
 	}
 	return -1
-}
-
-func estimateMessages(msgs []model.Message) int {
-	return estimator{}.Estimate(msgs, nil)
 }
 
 // deterministicSummary 是摘要模型失败时的兜底（§11.3）。

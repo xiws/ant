@@ -2,8 +2,6 @@ package prompt
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -88,8 +86,8 @@ func (a *assembler) Assemble(ctx context.Context, req Request) (Bundle, error) {
 	add("会话摘要", req.Summary)
 
 	stableText := strings.Join(stable, "\n\n")
-	stableHash := hashString(stableText)
-	toolsHash := hashString(toolsFingerprint(tools))
+	stableHash := model.HashRefString(stableText)
+	toolsHash := model.HashRefString(toolsFingerprint(tools))
 
 	messages := make([]model.Message, 0, len(req.Recent)+3)
 	if stableText != "" {
@@ -114,11 +112,11 @@ func (a *assembler) Assemble(ctx context.Context, req Request) (Bundle, error) {
 
 	meta := Meta{
 		NodePromptVersion: nodeDoc.Version,
-		ModeOverlayHash:   hashString(overlay.Text),
+		ModeOverlayHash:   model.HashRefString(overlay.Text),
 		StableHash:        stableHash,
 		ToolsHash:         toolsHash,
 		PromptHash:        hashMessages(messages),
-		Tokens:            estimateMessages(messages) + estimateTools(tools),
+		Tokens:            model.EstimateMessagesTokens(messages) + model.EstimateToolsTokens(tools),
 	}
 	return Bundle{Messages: messages, Meta: meta}, nil
 }
@@ -156,11 +154,6 @@ func wrap(err error, prefix string) error {
 	return &model.Error{Class: model.ErrConfigInvalid, Code: "prompt_read", Message: prefix + "：" + err.Error(), Cause: err}
 }
 
-func hashString(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
 func hashMessages(msgs []model.Message) string {
 	var b strings.Builder
 	for _, m := range msgs {
@@ -177,7 +170,7 @@ func hashMessages(msgs []model.Message) string {
 		}
 		b.WriteByte('\n')
 	}
-	return hashString(b.String())
+	return model.HashRefString(b.String())
 }
 
 func toolsFingerprint(tools []model.ToolSpec) string {
@@ -191,36 +184,4 @@ func toolsFingerprint(tools []model.ToolSpec) string {
 		b.WriteByte('\n')
 	}
 	return b.String()
-}
-
-func estimateMessages(msgs []model.Message) int {
-	total := 0
-	for _, m := range msgs {
-		total += estimateText(m.Content)
-		for _, tc := range m.ToolCalls {
-			total += estimateText(tc.Name) + estimateText(string(tc.Arguments))
-		}
-	}
-	return total
-}
-
-func estimateTools(tools []model.ToolSpec) int {
-	total := 0
-	for _, t := range tools {
-		total += estimateText(t.Name) + estimateText(t.Description) + estimateText(string(t.Schema))
-	}
-	return total
-}
-
-// estimateText 与 provider/context 保持同一保守口径：ASCII 4 字符/token，CJK 1 字符/token。
-func estimateText(s string) int {
-	ascii, nonASCII := 0, 0
-	for _, r := range s {
-		if r < 128 {
-			ascii++
-		} else {
-			nonASCII++
-		}
-	}
-	return (ascii+3)/4 + nonASCII
 }

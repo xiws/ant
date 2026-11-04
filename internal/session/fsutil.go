@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -118,12 +117,6 @@ func writeJSONAtomic(dst string, v any, perm os.FileMode) error {
 	}
 	b = append(b, '\n')
 	return writeFileAtomic(dst, b, perm)
-}
-
-// hashOf 返回与仓库其他模块一致的 sha256:hex 形式。
-func hashOf(data []byte) string {
-	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // withinDir 报告 target 是否位于 root 内（两者都应为绝对路径）。

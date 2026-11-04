@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/xiws/ant/internal/model"
@@ -319,32 +321,17 @@ func (c *Config) addWarning(format string, args ...any) {
 
 func cloneSettings(s Settings) Settings {
 	out := s
-	if s.NodeModels != nil {
-		out.NodeModels = make(map[string]string, len(s.NodeModels))
-		for k, v := range s.NodeModels {
-			out.NodeModels[k] = v
-		}
-	}
-	if s.CLINodeModels != nil {
-		out.CLINodeModels = make(map[string]string, len(s.CLINodeModels))
-		for k, v := range s.CLINodeModels {
-			out.CLINodeModels[k] = v
-		}
-	}
-	if s.Limits.MaxRounds != nil {
-		out.Limits.MaxRounds = make(map[string]int, len(s.Limits.MaxRounds))
-		for k, v := range s.Limits.MaxRounds {
-			out.Limits.MaxRounds[k] = v
-		}
-	}
-	out.FallbackModels = append([]string(nil), s.FallbackModels...)
-	out.Sandbox.AllowReadPaths = append([]string(nil), s.Sandbox.AllowReadPaths...)
-	out.Sandbox.AllowWritePaths = append([]string(nil), s.Sandbox.AllowWritePaths...)
-	out.Sandbox.ProtectedPaths = append([]string(nil), s.Sandbox.ProtectedPaths...)
-	out.Sandbox.HardDenyExtra = append([]string(nil), s.Sandbox.HardDenyExtra...)
-	out.Project.Exclude = append([]string(nil), s.Project.Exclude...)
-	out.Approval.Allow = append([]string(nil), s.Approval.Allow...)
-	out.Approval.Deny = append([]string(nil), s.Approval.Deny...)
-	out.Retry.RetryOn = append([]any(nil), s.Retry.RetryOn...)
+	out.NodeModels = maps.Clone(s.NodeModels)
+	out.CLINodeModels = maps.Clone(s.CLINodeModels)
+	out.Limits.MaxRounds = maps.Clone(s.Limits.MaxRounds)
+	out.FallbackModels = slices.Clone(s.FallbackModels)
+	out.Sandbox.AllowReadPaths = slices.Clone(s.Sandbox.AllowReadPaths)
+	out.Sandbox.AllowWritePaths = slices.Clone(s.Sandbox.AllowWritePaths)
+	out.Sandbox.ProtectedPaths = slices.Clone(s.Sandbox.ProtectedPaths)
+	out.Sandbox.HardDenyExtra = slices.Clone(s.Sandbox.HardDenyExtra)
+	out.Project.Exclude = slices.Clone(s.Project.Exclude)
+	out.Approval.Allow = slices.Clone(s.Approval.Allow)
+	out.Approval.Deny = slices.Clone(s.Approval.Deny)
+	out.Retry.RetryOn = slices.Clone(s.Retry.RetryOn)
 	return out
 }

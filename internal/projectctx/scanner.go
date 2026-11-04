@@ -8,10 +8,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -399,12 +400,7 @@ func (s *scanState) keyFileCandidates() []string {
 }
 
 func (s *scanState) sortedSeen() []string {
-	out := make([]string, 0, len(s.seen))
-	for rel := range s.seen {
-		out = append(out, rel)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(s.seen))
 }
 
 // --- 排除规则 ---
@@ -628,7 +624,7 @@ func packageJSONDeps(pkg packageJSON) []string {
 	for name := range pkg.DevDependencies {
 		keys = append(keys, name)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	return limitStrings(dedupeStrings(keys), maxDeps)
 }
 
@@ -754,10 +750,5 @@ func dedupeStrings(items []string) []string {
 }
 
 func sortedMapKeys(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(m))
 }

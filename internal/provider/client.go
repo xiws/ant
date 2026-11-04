@@ -2,8 +2,6 @@ package provider
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -68,7 +66,7 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest, onDelta func(Delta) 
 			"model":                cur.Alias,
 			"provider":             cur.ProviderName,
 			"messageCount":         len(req.Messages),
-			"estimatedInputTokens": estimateMessagesTokens(req.Messages) + estimateToolsTokens(req.Tools),
+			"estimatedInputTokens": model.EstimateMessagesTokens(req.Messages) + model.EstimateToolsTokens(req.Tools),
 			"tools":                toolNames(req.Tools),
 			"stream":               req.Stream,
 			"attempt":              1,
@@ -94,7 +92,7 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest, onDelta func(Delta) 
 			if emitErr := c.emit(ctx, model.EventModelResponse, model.MustJSON(map[string]any{
 				"finishReason":  lastResp.FinishReason,
 				"usage":         lastResp.Usage,
-				"textHash":      sha256Text(lastResp.Message.Content),
+				"textHash":      model.HashRefString(lastResp.Message.Content),
 				"toolCallCount": len(lastResp.Message.ToolCalls),
 				"durationMs":    duration.Milliseconds(),
 				"attempt":       attempts,
@@ -153,47 +151,10 @@ func (c *Client) emit(ctx context.Context, t model.EventType, data []byte) error
 	return c.sink.Emit(ctx, ev)
 }
 
-func sha256Text(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
 func toolNames(tools []model.ToolSpec) []string {
 	out := make([]string, 0, len(tools))
 	for _, t := range tools {
 		out = append(out, t.Name)
 	}
 	return out
-}
-
-func estimateMessagesTokens(msgs []model.Message) int {
-	total := 0
-	for _, m := range msgs {
-		total += estimateTextTokens(m.Content)
-		for _, tc := range m.ToolCalls {
-			total += estimateTextTokens(tc.Name) + estimateTextTokens(string(tc.Arguments))
-		}
-	}
-	return total
-}
-
-func estimateToolsTokens(tools []model.ToolSpec) int {
-	total := 0
-	for _, t := range tools {
-		total += estimateTextTokens(t.Name) + estimateTextTokens(t.Description) + estimateTextTokens(string(t.Schema))
-	}
-	return total
-}
-
-// estimateTextTokens 是保守估算：ASCII 约 4 字符/token，CJK 约 1 字符/token（§11.2）。
-func estimateTextTokens(s string) int {
-	ascii, nonASCII := 0, 0
-	for _, r := range s {
-		if r < 128 {
-			ascii++
-		} else {
-			nonASCII++
-		}
-	}
-	return (ascii+3)/4 + nonASCII
 }

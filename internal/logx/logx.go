@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"regexp"
 	"strings"
 	"sync"
@@ -201,12 +202,12 @@ func NewLoggerSink(l Logger, level string) model.EventSink {
 	if l == nil {
 		return model.EventSinkFunc(func(context.Context, *model.Event) error { return nil })
 	}
+	lv := ParseLevel(level)
 	return model.EventSinkFunc(func(ctx context.Context, ev *model.Event) error {
 		if ev == nil {
 			return nil
 		}
 		msg := "event " + string(ev.Type)
-		lv := ParseLevel(level)
 		kv := []any{"seq", ev.Seq, "turn", ev.Turn}
 		if ev.Node != "" {
 			kv = append(kv, "node", string(ev.Node))
@@ -229,13 +230,16 @@ func NewLoggerSink(l Logger, level string) model.EventSink {
 	})
 }
 
+// largeEventDataKeys 是事件中体积大、日志/NDJSON 只保留引用的字段。
+var largeEventDataKeys = []string{"content", "arguments", "text", "stdout", "stderr", "summary", "plan"}
+
 // summarizeEventData 去掉大字段，只保留可读摘要。
 func summarizeEventData(raw json.RawMessage) string {
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return "<data>"
 	}
-	for _, key := range []string{"content", "arguments", "text", "stdout", "stderr", "summary", "plan"} {
+	for _, key := range largeEventDataKeys {
 		if _, ok := m[key]; ok {
 			m[key] = "<omitted>"
 		}
@@ -256,22 +260,16 @@ func NewNDJSON(w io.Writer) model.EventSink {
 		return model.EventSinkFunc(func(context.Context, *model.Event) error { return nil })
 	}
 	var mu sync.Mutex
+	enc := json.NewEncoder(w)
 	return model.EventSinkFunc(func(ctx context.Context, ev *model.Event) error {
 		if ev == nil {
 			return nil
 		}
 		cp := *ev
 		cp.Data = trimEventDataForNDJSON(ev.Data)
-		b, err := json.Marshal(cp)
-		if err != nil {
-			return err
-		}
 		mu.Lock()
 		defer mu.Unlock()
-		if _, err := fmt.Fprintln(w, string(b)); err != nil {
-			return err
-		}
-		return nil
+		return enc.Encode(cp)
 	})
 }
 
@@ -283,23 +281,19 @@ func trimEventDataForNDJSON(raw json.RawMessage) json.RawMessage {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return raw
 	}
+	out := maps.Clone(m)
 	changed := false
-	for _, key := range []string{"content", "arguments", "text", "stdout", "stderr", "summary", "plan"} {
-		if v, ok := m[key]; ok {
-			cp := make(map[string]any, len(m))
-			for k, vv := range m {
-				cp[k] = vv
-			}
-			cp[key+"Ref"] = map[string]any{"omitted": true, "bytes": len(fmt.Sprint(v))}
-			delete(cp, key)
-			m = cp
+	for _, key := range largeEventDataKeys {
+		if v, ok := out[key]; ok {
+			out[key+"Ref"] = map[string]any{"omitted": true, "bytes": len(fmt.Sprint(v))}
+			delete(out, key)
 			changed = true
 		}
 	}
 	if !changed {
 		return raw
 	}
-	b, err := json.Marshal(m)
+	b, err := json.Marshal(out)
 	if err != nil {
 		return raw
 	}

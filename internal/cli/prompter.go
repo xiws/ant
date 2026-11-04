@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -92,7 +93,7 @@ func (p *terminalPrompter) Ask(ctx context.Context, q approval.Question) (approv
 	if line == "" {
 		return approval.Answer{}, nil
 	}
-	if n, convErr := atoi(line); convErr == nil && n >= 1 && n <= len(q.Options) {
+	if n, convErr := strconv.Atoi(line); convErr == nil && n >= 1 && n <= len(q.Options) {
 		return approval.Answer{SelectedID: q.Options[n-1].ID, Text: q.Options[n-1].Label}, nil
 	}
 	if q.AllowFreeText && !(q.Options != nil && line == fmt.Sprint(len(q.Options)+1)) {
@@ -108,20 +109,6 @@ func (p *terminalPrompter) readLine() (string, error) {
 		return "", err
 	}
 	return strings.TrimRight(line, "\r\n"), nil
-}
-
-func atoi(s string) (int, error) {
-	var n int
-	if len(s) == 0 {
-		return 0, fmt.Errorf("empty")
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return 0, fmt.Errorf("not a number")
-		}
-		n = n*10 + int(r-'0')
-	}
-	return n, nil
 }
 
 // replayDecider 用同一套交互决定「可能已执行的副作用工具」如何处理（§9.6）。

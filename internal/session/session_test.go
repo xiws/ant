@@ -227,7 +227,7 @@ func TestArtifactWriteReadAndEscape(t *testing.T) {
 	if ref.SessionID != opened.ID || ref.Name != "artifacts/notes/readme.txt" {
 		t.Fatalf("ref = %+v", ref)
 	}
-	if ref.Bytes != int64(len(body)) || ref.SHA256 != hashOf(body) {
+	if ref.Bytes != int64(len(body)) || ref.SHA256 != model.HashRef(body) {
 		t.Fatalf("ref metadata = %+v", ref)
 	}
 	got, err := sess.Artifact(ref)

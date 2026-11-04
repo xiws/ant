@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/xiws/ant/internal/config"
 	"github.com/xiws/ant/internal/model"
@@ -134,7 +133,7 @@ func readOverride(path string) (Doc, bool, error) {
 }
 
 func versionOf(text string) string {
-	h := strings.TrimPrefix(hashString(text), "sha256:")
+	h := model.HashHexString(text)
 	if len(h) > 12 {
 		h = h[:12]
 	}

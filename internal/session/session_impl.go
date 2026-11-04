@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
@@ -179,7 +180,7 @@ func (s *fsSession) PutArtifact(ctx context.Context, name string, data []byte, m
 		SessionID: id,
 		Name:      rel,
 		Bytes:     int64(len(data)),
-		SHA256:    hashOf(data),
+		SHA256:    model.HashRef(data),
 	}, nil
 }
 
@@ -351,14 +352,8 @@ func sessionClosedError(id string) *model.Error {
 }
 
 func cloneMeta(meta Meta) Meta {
-	cp := meta
-	if meta.PromptVersions != nil {
-		cp.PromptVersions = make(map[string]string, len(meta.PromptVersions))
-		for k, v := range meta.PromptVersions {
-			cp.PromptVersions[k] = v
-		}
-	}
-	return cp
+	meta.PromptVersions = maps.Clone(meta.PromptVersions)
+	return meta
 }
 
 var _ Session = (*fsSession)(nil)

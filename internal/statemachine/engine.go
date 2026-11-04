@@ -1,13 +1,13 @@
 package statemachine
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -942,7 +942,7 @@ func (e *engine) emit(ctx context.Context, ev *model.Event) error {
 func (e *engine) turnStartedData(tc *turnCtx) json.RawMessage {
 	data := map[string]any{
 		"input":     tc.user,
-		"inputHash": hashString(tc.user),
+		"inputHash": model.HashHexString(tc.user),
 		"mode":      string(tc.mode),
 		"turn":      tc.turn,
 		"round":     tc.round,
@@ -1145,27 +1145,18 @@ func (m *missingNodeError) Error() string {
 
 // ---- 小工具 ----
 
-func hashString(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])
-}
-
 func cloneMessages(in []model.Message) []model.Message {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make([]model.Message, len(in))
-	for i, m := range in {
-		out[i] = m
-		if len(m.ToolCalls) > 0 {
-			calls := make([]model.ToolCall, len(m.ToolCalls))
-			for j, c := range m.ToolCalls {
-				calls[j] = c
-				if len(c.Arguments) > 0 {
-					calls[j].Arguments = append(json.RawMessage(nil), c.Arguments...)
-				}
-			}
-			out[i].ToolCalls = calls
+	out := slices.Clone(in)
+	for i := range out {
+		if len(out[i].ToolCalls) == 0 {
+			continue
+		}
+		out[i].ToolCalls = slices.Clone(out[i].ToolCalls)
+		for j := range out[i].ToolCalls {
+			out[i].ToolCalls[j].Arguments = bytes.Clone(out[i].ToolCalls[j].Arguments)
 		}
 	}
 	return out
@@ -1175,9 +1166,7 @@ func cloneFailures(in []model.Failure) []model.Failure {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make([]model.Failure, len(in))
-	copy(out, in)
-	return out
+	return slices.Clone(in)
 }
 
 func lastUserContent(msgs []model.Message) string {

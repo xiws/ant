@@ -489,7 +489,7 @@ func listArtifacts(dir, id string) ([]model.ArtifactRef, error) {
 		body, readErr := os.ReadFile(path)
 		sha := ""
 		if readErr == nil {
-			sha = hashOf(body)
+			sha = model.HashRef(body)
 		}
 		refs = append(refs, model.ArtifactRef{
 			SessionID: id,
