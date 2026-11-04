@@ -89,6 +89,7 @@ func Run(ctx context.Context, args []string, stdio Stdio) int {
 	return code
 }
 
+// normalizeStdio 初始化输出
 func normalizeStdio(s Stdio) Stdio {
 	if s.In == nil {
 		s.In = os.Stdin
