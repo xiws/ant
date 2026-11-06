@@ -163,6 +163,31 @@ func TestLoaderValidationErrors(t *testing.T) {
 	}
 }
 
+func TestLoaderModelAliasWithColon(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	writeFile(t, filepath.Join(dir, ".ant", "models.json"), `{
+		"schemaVersion": 1,
+		"providers": {"ollama": {"api": "openai-completions", "baseUrl": "http://127.0.0.1:11434/v1",
+			"models": [{"id": "ornith-1.5:9b", "name": "ornith-1.5:9b", "contextWindow": 65536}]}}
+	}`)
+	writeFile(t, filepath.Join(dir, ".ant", "settings.json"), `{"defaultModel":"ornith-1.5:9b"}`)
+	if _, err := load(t, dir, home, Overrides{}); err != nil {
+		t.Fatalf("defaultModel with colon alias should be accepted: %v", err)
+	}
+
+	// provider:name 限定写法仍然有效（即使 name 本身含冒号）。
+	if _, err := load(t, dir, home, Overrides{Model: "ollama:ornith-1.5:9b"}); err != nil {
+		t.Fatalf("provider-qualified colon alias should be accepted: %v", err)
+	}
+
+	// 冒号前缀不是 provider 时不能再误报，但真正未知的别名仍应失败。
+	writeFile(t, filepath.Join(dir, ".ant", "settings.json"), `{"defaultModel":"ornith-1.5:99b"}`)
+	if _, err := load(t, dir, home, Overrides{}); err == nil {
+		t.Fatal("unknown colon alias should fail")
+	}
+}
+
 func TestLoaderStrictJSONAndSize(t *testing.T) {
 	dir := t.TempDir()
 	home := filepath.Join(dir, "home")

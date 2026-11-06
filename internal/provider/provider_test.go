@@ -36,11 +36,16 @@ const modelsJSON = `{
 
 func testConfig(t *testing.T, settings string) config.View {
 	t.Helper()
+	return testConfigWithModels(t, modelsJSON, settings)
+}
+
+func testConfigWithModels(t *testing.T, models, settings string) config.View {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".ant"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".ant", "models.json"), []byte(modelsJSON), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".ant", "models.json"), []byte(models), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, ".ant", "settings.json"), []byte(settings), 0o600); err != nil {
@@ -77,6 +82,41 @@ func TestRegistryResolve(t *testing.T) {
 	}
 	if _, err := reg.Resolve("real-alpha"); err == nil {
 		t.Fatal("duplicate id across providers should be ambiguous")
+	}
+}
+
+func TestRegistryResolveAliasWithColon(t *testing.T) {
+	const taggedModels = `{
+	  "schemaVersion": 1,
+	  "providers": {
+	    "ollama": {
+	      "api": "openai-completions",
+	      "baseUrl": "http://127.0.0.1:11434/v1",
+	      "models": [
+	        {"id": "ornith-1.5:9b", "name": "ornith-1.5:9b", "contextWindow": 65536, "supportsTools": true},
+	        {"id": "ornith:latest", "name": "ornith", "contextWindow": 65536, "supportsTools": true}
+	      ]
+	    }
+	  }
+	}`
+	cfg := testConfigWithModels(t, taggedModels, `{"defaultModel":"ornith-1.5:9b"}`)
+	reg := NewRegistry(cfg, NewFactory(cfg, logx.Nop()), logx.Nop())
+
+	res, err := reg.Resolve("ornith-1.5:9b")
+	if err != nil {
+		t.Fatalf("colon alias should resolve by name: %v", err)
+	}
+	if res.ProviderName != "ollama" || res.Alias != "ornith-1.5:9b" || res.ModelID != "ornith-1.5:9b" {
+		t.Fatalf("resolved = %+v", res)
+	}
+	if _, err := reg.Resolve("ollama:ornith-1.5:9b"); err != nil {
+		t.Fatalf("provider-qualified colon alias: %v", err)
+	}
+	if _, err := reg.Resolve("ollama:ornith"); err != nil {
+		t.Fatalf("provider-qualified alias: %v", err)
+	}
+	if _, err := reg.Resolve("nosuchprovider:ornith"); err == nil {
+		t.Fatal("unqualified unknown alias should still fail")
 	}
 }
 

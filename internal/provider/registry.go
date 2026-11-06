@@ -42,17 +42,17 @@ func (r *registry) Resolve(alias string) (Resolved, error) {
 	}
 
 	// 1. provider:name（显式限定 provider）。
+	// 仅当前缀确实是已知 provider 时才按限定名解析；否则 ':' 可能只是
+	// 别名/id 的一部分（如 Ollama tag "ornith-1.5:9b"），继续走全局匹配。
 	if i := strings.IndexByte(alias, ':'); i > 0 {
 		providerName, modelName := alias[:i], alias[i+1:]
-		p, ok := r.findProvider(providerName)
-		if !ok {
-			return Resolved{}, r.unknown(alias, fmt.Sprintf("provider %q 不存在", providerName))
+		if p, ok := r.findProvider(providerName); ok {
+			m, ok := findModel(p.Models, modelName)
+			if !ok {
+				return Resolved{}, r.unknown(alias, fmt.Sprintf("provider %q 下没有模型 %q", providerName, modelName))
+			}
+			return resolved(p, m), nil
 		}
-		m, ok := findModel(p.Models, modelName)
-		if !ok {
-			return Resolved{}, r.unknown(alias, fmt.Sprintf("provider %q 下没有模型 %q", providerName, modelName))
-		}
-		return resolved(p, m), nil
 	}
 
 	var byName, byID []Resolved

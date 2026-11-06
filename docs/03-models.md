@@ -21,6 +21,8 @@
 
 **示例**：`defaultProvider: "qwen3.7-flash-2026-07-15"` 是 `id`，会按第 3 条解析到 `qwen3.7-flash_snap`（`name`），但建议改成 `defaultModel: "qwen3.7-flash_snap"`。
 
+**含冒号的别名**：`provider:name` 仅当冒号前缀等于已配置 provider 的 `key` 或 `name` 时才生效；否则整串按 `name`/`id` 匹配。因此 Ollama tag 形式的别名（如 `ornith-1.5:9b`）可直接作为 `defaultModel`，也可写成 `ollama:ornith-1.5:9b`。
+
 ## 5.2 能力与校验
 
 | 能力 | 不满足时的行为 |

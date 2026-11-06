@@ -180,19 +180,21 @@ func (c *Config) aliasExists(alias string) bool {
 	if alias == "" {
 		return false
 	}
+	// ':' 只在冒号前缀确实是已知 provider 时才表示 provider:name；
+	// 否则它可能只是别名/id 本身（如 Ollama tag "ornith-1.5:9b"）。
 	if i := strings.IndexByte(alias, ':'); i > 0 {
-		provider, name := alias[:i], alias[i+1:]
 		for _, p := range c.providers {
-			if p.Key != provider && p.Name != provider {
+			if p.Key != alias[:i] && p.Name != alias[:i] {
 				continue
 			}
+			name := alias[i+1:]
 			for _, m := range p.Models {
 				if m.Name == name || m.ID == name {
 					return true
 				}
 			}
+			return false
 		}
-		return false
 	}
 	for _, m := range c.models {
 		if m.Name == alias || m.ID == alias {
