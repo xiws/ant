@@ -418,8 +418,11 @@ func TestCatalogBuiltinSpecs(t *testing.T) {
 	}
 }
 
-func TestBuiltinPlaceholderExecution(t *testing.T) {
+func TestBuiltinReadExecution(t *testing.T) {
 	env := newTestEnv(t, nil)
+	if err := os.WriteFile(filepath.Join(env.view.WorkDir(), "README.md"), []byte("hello\nworld\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	tk := NewToolkit(env.view, Deps{Sink: env.sink, Store: env.store})
 	msgs, err := tk.Runtime.ExecuteBatch(context.Background(), model.NodeCode, []model.ToolCall{
 		{ID: "c1", Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`)},
@@ -427,9 +430,13 @@ func TestBuiltinPlaceholderExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteBatch 返回错误: %v", err)
 	}
-	got := requireCode(t, msgs[0], "internal")
-	if !strings.Contains(got.Error.Message, "后续阶段") {
-		t.Fatalf("占位错误消息不符：%q", got.Error.Message)
+	body := decodeMessage(t, msgs[0])
+	if !body.OK {
+		t.Fatalf("read 应成功：%s", msgs[0].Content)
+	}
+	data := dataMap(t, body.Data)
+	if !strings.Contains(data["content"].(string), "hello") || data["totalLines"] != float64(2) {
+		t.Fatalf("read data = %v", data)
 	}
 }
 

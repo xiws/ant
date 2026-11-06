@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"os"
 	"time"
 
 	"github.com/xiws/ant/internal/config"
@@ -31,6 +32,17 @@ func workDirOf(cfg config.View) string {
 		return p.WorkDir()
 	}
 	return ""
+}
+
+// workspaceDir 取 workspace 绝对路径；View 未实现 config.Paths 时回落到当前目录。
+func workspaceDir(cfg config.View) string {
+	if wd := workDirOf(cfg); wd != "" {
+		return wd
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return "."
 }
 
 // msDuration 把毫秒配置转成 Duration；非法值用 fallback。

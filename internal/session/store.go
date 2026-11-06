@@ -511,6 +511,12 @@ func findPlanPath(dir string) string {
 	candidates := []string{
 		filepath.Join(dir, "plan.md"),
 		filepath.Join(dir, "artifacts", "plan.md"),
+		filepath.Join(dir, "artifacts", "plan", "plan.md"),
+	}
+	// artifacts/plan/round-*.md：取文件名排序最后（轮次最大）的一份。
+	if rounds, err := filepath.Glob(filepath.Join(dir, "artifacts", "plan", "round-*.md")); err == nil && len(rounds) > 0 {
+		sort.Strings(rounds)
+		candidates = append(candidates, rounds[len(rounds)-1])
 	}
 	for _, candidate := range candidates {
 		if info, err := os.Lstat(candidate); err == nil && info.Mode().IsRegular() {

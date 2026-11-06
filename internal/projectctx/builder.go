@@ -49,10 +49,12 @@ type builder struct {
 	provider provider.Provider
 	log      logx.Logger
 
-	newScanner func() Scanner
-	newHasher  func(workDir string) Hasher
-	generator  Generator
-	now        func() time.Time
+	newScanner     func() Scanner
+	newHasher      func(workDir string) Hasher
+	generator      Generator
+	modelGenerator Generator
+	modelName      string
+	now            func() time.Time
 }
 
 // NewBuilder 注入配置、模型与日志；扫描/哈希/生成器在内部构造，便于单测替换。
@@ -60,7 +62,7 @@ func NewBuilder(cfg config.View, p provider.Provider, log logx.Logger) Builder {
 	if log == nil {
 		log = logx.Nop()
 	}
-	return &builder{
+	b := &builder{
 		cfg:        cfg,
 		provider:   p,
 		log:        log,
@@ -69,6 +71,11 @@ func NewBuilder(cfg config.View, p provider.Provider, log logx.Logger) Builder {
 		generator:  NewDeterministicGenerator(),
 		now:        func() time.Time { return time.Now().UTC() },
 	}
+	if mg, alias := NewModelGenerator(cfg, p); mg != nil {
+		b.modelGenerator = mg
+		b.modelName = alias
+	}
+	return b
 }
 
 var _ Builder = (*builder)(nil)
@@ -181,7 +188,7 @@ func (b *builder) Ensure(ctx context.Context, opts EnsureOptions) (Doc, error) {
 	}
 
 	report(opts.Progress, "generate")
-	body, bytesSent, takeover, genErr := b.buildBody(ctx, paths, scanRes, settings, existing, hasDoc, opts.Force)
+	body, bytesSent, takeover, fromModel, modelName, genErr := b.buildBody(ctx, paths, scanRes, settings, existing, hasDoc, opts.Force)
 	if genErr != nil {
 		b.log.Warn("projectctx: 生成 project.md 失败", "workdir", workDir, "error", genErr)
 		return Doc{}, genErr
@@ -193,10 +200,14 @@ func (b *builder) Ensure(ctx context.Context, opts EnsureOptions) (Doc, error) {
 	}
 
 	generatedAt := b.now().UTC().Truncate(time.Millisecond)
+	metaModel := deterministicModel
+	if fromModel && modelName != "" {
+		metaModel = modelName
+	}
 	out := metaFile{
 		SchemaVersion: metaSchemaVersion,
 		GeneratedAt:   generatedAt.Format(metaTimeLayout),
-		Model:         deterministicModel,
+		Model:         metaModel,
 		GitCommit:     shortCommit(readGitCommit(workDir)),
 		Hash:          hash,
 		FileCount:     scanRes.FileCount,
@@ -228,12 +239,12 @@ func (b *builder) Ensure(ctx context.Context, opts EnsureOptions) (Doc, error) {
 	}
 
 	b.log.Debug("projectctx: 已更新 project.md", "path", paths.doc, "hash", hash, "files", scanRes.FileCount)
-	return Doc{Path: paths.doc, Body: body, Hash: hash, GeneratedAt: generatedAt, FromModel: false}, nil
+	return Doc{Path: paths.doc, Body: body, Hash: hash, GeneratedAt: generatedAt, FromModel: fromModel}, nil
 }
 
 // buildBody 生成最终文件内容并实现手改保护（§14.5）。
 // 返回 (正文, 发送给生成器的关键文件字节数, 是否用户接管, error)。
-func (b *builder) buildBody(ctx context.Context, paths projectPaths, res ScanResult, settings config.Settings, existing string, hasDoc, force bool) (string, int, bool, error) {
+func (b *builder) buildBody(ctx context.Context, paths projectPaths, res ScanResult, settings config.Settings, existing string, hasDoc, force bool) (string, int, bool, bool, string, error) {
 	maxOutput := settings.Project.MaxOutputBytes
 	if maxOutput <= 0 {
 		maxOutput = defaultMaxOutputBytes
@@ -242,27 +253,43 @@ func (b *builder) buildBody(ctx context.Context, paths projectPaths, res ScanRes
 		maxOutput = hardMaxOutputBytes
 	}
 	skeleton := skeletonFrom(res)
-	md, bytesSent, err := generateWithin(ctx, b.generator, skeleton, maxOutput)
+	md, bytesSent, fromModel, modelName, err := b.generate(ctx, skeleton, maxOutput)
 	if err != nil {
-		return "", 0, false, err
+		return "", 0, false, false, "", err
 	}
 	if !hasDoc || strings.TrimSpace(existing) == "" {
-		return md, bytesSent, false, nil
+		return md, bytesSent, false, fromModel, modelName, nil
 	}
 	block, ok := generatedBlock(md)
 	if !ok {
-		return "", 0, false, model.NewError(model.ErrInternal, "projectctx.markers", "生成内容缺少 ant:generated 标记")
+		return "", 0, false, false, "", model.NewError(model.ErrInternal, "projectctx.markers", "生成内容缺少 ant:generated 标记")
 	}
 	if start, end, ok := markerRange(existing); ok {
 		// 只替换标记块，标记外的用户内容原样保留。
-		return replaceGeneratedBlock(existing, start, end, block), bytesSent, false, nil
+		return replaceGeneratedBlock(existing, start, end, block), bytesSent, false, fromModel, modelName, nil
 	}
 	if !force {
 		b.log.Warn("projectctx: project.md 已被手动修改（缺少 ant:generated 标记），不再自动覆盖；`ant init --force` 可重建", "path", paths.doc)
-		return existing, 0, true, nil
+		return existing, 0, true, false, "", nil
 	}
 	b.log.Warn("projectctx: project.md 缺少 ant:generated 标记，--force 将整体覆盖（原内容备份为 project.md.bak）", "path", paths.doc)
-	return md, bytesSent, false, nil
+	return md, bytesSent, false, fromModel, modelName, nil
+}
+
+// generate 优先使用模型摘要；失败或产出不合规时退回确定性骨架（§14.3 第 5 步）。
+func (b *builder) generate(ctx context.Context, s Skeleton, maxOutput int) (string, int, bool, string, error) {
+	if b.modelGenerator != nil {
+		md, bytesSent, err := generateWithin(ctx, b.modelGenerator, s, maxOutput)
+		if err == nil {
+			return md, bytesSent, true, b.modelName, nil
+		}
+		b.log.Warn("projectctx: 模型摘要失败，退回确定性骨架", "model", b.modelName, "error", err)
+	}
+	md, bytesSent, err := generateWithin(ctx, b.generator, s, maxOutput)
+	if err != nil {
+		return "", 0, false, "", err
+	}
+	return md, bytesSent, false, deterministicModel, nil
 }
 
 func (b *builder) workDir() (string, error) {

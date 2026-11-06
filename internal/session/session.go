@@ -156,16 +156,19 @@ type PendingCall struct {
 
 // State 是折叠事件后的恢复状态。
 type State struct {
-	Meta     Meta
-	LastSeq  int64
-	Last     model.EventType
-	Turn     int
-	Step     model.StepRef
-	Round    int
-	Messages []model.Message
-	Pending  []PendingCall
-	Grants   []model.ApprovalClass
-	Usage    model.Usage
-	Summary  string
+	Meta       Meta
+	LastSeq    int64
+	Last       model.EventType
+	TurnStatus string // 最后一个 turn_completed 的 status：ok/failed/interrupted
+	Turn       int
+	Step       model.StepRef
+	Round      int
+	Messages   []model.Message
+	Pending    []PendingCall
+	Grants     []model.ApprovalClass
+	Usage      model.Usage
+	Summary    string
+	// Done 是本 turn 已完成、恢复时不应重跑的 step ID（§9.6 第 6 步）。
+	Done     []string
 	Warnings []string
 }

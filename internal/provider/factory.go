@@ -21,16 +21,15 @@ type factory struct {
 
 // NewFactory 按 provider 配置造适配器。
 //
-// 抽象层阶段只冻结装配面：`openai-completions` 与 `otter` 均返回
-// adapter_not_implemented；后续实现适配器时用 RegisterAdapter 注册即可，
-// 不影响 Registry/Router/节点与测试替身。
+// `openai-completions` 是生产适配器；`otter` 缺少公开协议，v1 明确返回
+// adapter_not_implemented（§5.6）。新协议通过 RegisterAdapter 注册。
 func NewFactory(cfg config.View, log logx.Logger) Factory {
 	if log == nil {
 		log = logx.Nop()
 	}
 	f := &factory{cfg: cfg, log: log, builders: map[string]AdapterBuilder{}}
-	f.builders[string(API("openai-completions"))] = notImplemented("openai-completions", "OpenAI 兼容协议适配器将在 provider 实现阶段接入")
-	f.builders[string(API("otter"))] = notImplemented("otter", "otter 缺少公开协议，按实验性处理（§5.6）")
+	f.builders[string(API("openai-completions"))] = NewOpenAICompletionsAdapter
+	f.builders[string(API("otter"))] = notImplemented("otter", "otter 缺少公开协议，按实验性处理（§5.6）；请使用 openai-completions")
 	return f
 }
 
@@ -70,7 +69,7 @@ func notImplemented(api, hint string) AdapterBuilder {
 		return nil, &model.Error{
 			Class:   model.ErrAdapterNotImplemented,
 			Code:    "adapter_not_implemented",
-			Message: fmt.Sprintf("provider %s 的适配器 %s 尚未实现（抽象层阶段）", spec.DisplayName(), api),
+			Message: fmt.Sprintf("provider %s 的适配器 %s 尚未实现", spec.DisplayName(), api),
 			Hint:    hint,
 			Details: map[string]any{"provider": spec.Key, "api": api},
 		}

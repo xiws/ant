@@ -56,6 +56,11 @@ type ResumeState struct {
 	Summary string
 }
 
+// PlanWriter 负责把 plan 正文落盘（session 目录）；由组合根注入。
+type PlanWriter interface {
+	WritePlan(ctx context.Context, plan Plan) (string, error)
+}
+
 // Plan 是 Plan gate 的输入。
 type Plan struct {
 	Path  string

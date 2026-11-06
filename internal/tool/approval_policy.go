@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -18,9 +19,9 @@ var outsidePathPattern = regexp.MustCompile(`(^|[\s"'=])(/(etc|usr|var|root|home
 
 // effectiveApproval 把 ToolSpec 的「默认审批类别」细化为「本次调用是否需要审批」。
 // 这一步避免 workspace 内的 read/write 每次都触发人工确认（§12.3）。
-func (r *runtimeImpl) effectiveApproval(ctx context.Context, name string, spec model.ToolSpec, args map[string]any) (model.ApprovalClass, bool) {
+func (r *runtimeImpl) effectiveApproval(ctx context.Context, name string, spec model.ToolSpec, args map[string]any) (model.ApprovalClass, bool, *ToolError) {
 	if spec.Approval == "" {
-		return "", false
+		return "", false, nil
 	}
 	switch spec.Approval {
 	case model.ApprovalFSReadOutside, model.ApprovalFSWriteOutside:
@@ -30,51 +31,71 @@ func (r *runtimeImpl) effectiveApproval(ctx context.Context, name string, spec m
 		}
 		paths := approvalPathsFromArgs(name, args)
 		if len(paths) == 0 {
-			return "", false
+			return "", false, nil
 		}
 		for _, p := range paths {
 			if p == "" {
 				continue
 			}
 			if r.deps.Guard == nil {
-				return spec.Approval, true
+				return spec.Approval, true, nil
 			}
 			res, err := r.deps.Guard.Resolve(ctx, p, access)
 			if err != nil {
-				// 保护路径等错误由执行阶段给出更精确的 tool 消息；
-				// 这里仍要求审批，避免静默放行。
-				return spec.Approval, true
+				// 保护路径是硬拒绝，不进入审批；其它解析错误交给执行阶段给出精确消息。
+				if model.CodeOf(err) == "path_protected" {
+					return "", false, pathError(err)
+				}
+				return spec.Approval, true, nil
 			}
 			if res.Outside {
-				return spec.Approval, true
+				return spec.Approval, true, nil
 			}
 		}
-		return "", false
+		return "", false, nil
 	case model.ApprovalBashRisk, model.ApprovalBashNetwork, model.ApprovalBashOutside:
 		cmd := commandFromArgs(args)
 		if cmd == "" {
-			return "", false
+			return "", false, nil
 		}
-		if riskCommandPattern.MatchString(cmd) {
-			return model.ApprovalBashRisk, true
+		if r.deny != nil {
+			if rule, denied := r.deny.Match(cmd); denied {
+				return "", false, &ToolError{
+					Code:    "approval_denied",
+					Message: "命令命中硬拒绝规则，已拒绝执行",
+					Hint:    "硬拒绝不可通过审批或 --yes 覆盖；请换一种安全的实现方式",
+					Details: map[string]any{"rule": rule, "command": cmd},
+				}
+			}
 		}
 		if networkCommandPattern.MatchString(cmd) {
 			network := "ask"
 			if r.cfg != nil {
 				network = r.cfg.Settings().Sandbox.Network
 			}
-			if network == "allow" {
-				return "", false
+			switch network {
+			case "allow":
+				// 网络放行不等于风险放行：继续检查风险命令/越界路径。
+			case "deny":
+				return "", false, &ToolError{
+					Code:    "approval_denied",
+					Message: "sandbox.network=deny：网络命令被拒绝",
+					Hint:    "改用本地数据，或由用户把 sandbox.network 改为 ask/allow",
+					Details: map[string]any{"command": cmd, "network": network},
+				}
+			default:
+				return model.ApprovalBashNetwork, true, nil
 			}
-			// ask 与 deny 都需要进入审批；deny 由 approval.policy 决定拒绝。
-			return model.ApprovalBashNetwork, true
 		}
-		if outsidePathPattern.MatchString(cmd) {
-			return model.ApprovalBashOutside, true
+		if riskCommandPattern.MatchString(cmd) {
+			return model.ApprovalBashRisk, true, nil
 		}
-		return "", false
+		if commandTouchesOutside(cmd, r.workDir) {
+			return model.ApprovalBashOutside, true, nil
+		}
+		return "", false, nil
 	default:
-		return spec.Approval, true
+		return spec.Approval, true, nil
 	}
 }
 
@@ -98,4 +119,30 @@ func approvalPathsFromArgs(name string, args map[string]any) []string {
 		}
 	}
 	return out
+}
+
+var absoluteTokenPattern = regexp.MustCompile(`(?:^|[\s"'=<>|;&(])((?:[A-Za-z]:[\\/]|/)[^\s"'|;&<>()]*)`)
+
+// commandTouchesOutside 检查命令中的绝对路径是否逃出 workspace（§12.3）。
+func commandTouchesOutside(command, workDir string) bool {
+	if strings.Contains(command, "../") || strings.Contains(command, `..\`) {
+		return true
+	}
+	if workDir == "" {
+		return outsidePathPattern.MatchString(command)
+	}
+	for _, m := range absoluteTokenPattern.FindAllStringSubmatch(command, -1) {
+		if len(m) < 2 {
+			continue
+		}
+		p := strings.TrimRight(m[1], `,;:)`)
+		if !filepath.IsAbs(p) {
+			continue
+		}
+		rel, err := filepath.Rel(workDir, filepath.Clean(p))
+		if err != nil || isOutsideRel(rel) {
+			return true
+		}
+	}
+	return false
 }

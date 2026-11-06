@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"time"
 
@@ -75,11 +76,40 @@ func (r *retrier) Do(ctx context.Context, attempt func(ctx context.Context, n in
 			return last
 		}
 		delay := r.delay(n)
+		if d, ok := retryAfterOf(last); ok && d > 0 {
+			if d > r.max {
+				d = r.max
+			}
+			delay = d
+		}
 		if err := r.sleep(ctx, delay); err != nil {
 			return err
 		}
 	}
 	return last
+}
+
+// retryAfterOf 从错误 details 中读取 provider 的 Retry-After（毫秒）。
+func retryAfterOf(err error) (time.Duration, bool) {
+	var me *model.Error
+	if !errors.As(err, &me) || me.Details == nil {
+		return 0, false
+	}
+	raw, ok := me.Details["retryAfterMs"]
+	if !ok {
+		return 0, false
+	}
+	switch v := raw.(type) {
+	case int:
+		return time.Duration(v) * time.Millisecond, true
+	case int64:
+		return time.Duration(v) * time.Millisecond, true
+	case float64:
+		return time.Duration(v) * time.Millisecond, true
+	case time.Duration:
+		return v, true
+	}
+	return 0, false
 }
 
 func (r *retrier) delay(attempt int) time.Duration {

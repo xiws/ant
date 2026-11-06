@@ -48,13 +48,15 @@ func Recover(ctx context.Context, r Reader, d ReplayDecider) (State, error) {
 	}
 
 	b := &recoveryBuilder{
-		reader:    r,
-		decider:   d,
-		calls:     make(map[string]*callState),
-		callOwner: make(map[string]int),
-		synthetic: make(map[int]bool),
-		toolMsg:   make(map[string]int),
-		grantSeen: make(map[model.ApprovalClass]bool),
+		reader:         r,
+		decider:        d,
+		calls:          make(map[string]*callState),
+		callOwner:      make(map[string]int),
+		synthetic:      make(map[int]bool),
+		toolMsg:        make(map[string]int),
+		grantSeen:      make(map[model.ApprovalClass]bool),
+		doneSeen:       make(map[string]bool),
+		fanoutBranches: make(map[string]int),
 	}
 	if err := b.fold(ctx, events, &state); err != nil {
 		return State{}, err
@@ -72,6 +74,8 @@ func Recover(ctx context.Context, r Reader, d ReplayDecider) (State, error) {
 	state.Pending = b.pendingCalls()
 	state.Grants = b.grants
 	state.Summary = b.summary
+	state.TurnStatus = b.turnStatus
+	state.Done = append([]string(nil), b.done...)
 	state.Warnings = append(state.Warnings, b.warnings...)
 
 	switch {
@@ -131,10 +135,15 @@ type recoveryBuilder struct {
 	stepUsage         model.Usage
 	stepUsageSeen     bool
 
-	summary  string
-	mode     model.Mode
-	maxTurn  int
-	warnings []string
+	summary    string
+	mode       model.Mode
+	maxTurn    int
+	turnStatus string
+	warnings   []string
+
+	done           []string
+	doneSeen       map[string]bool
+	fanoutBranches map[string]int
 }
 
 func (b *recoveryBuilder) warn(msg string) {
@@ -155,6 +164,7 @@ func (b *recoveryBuilder) fold(ctx context.Context, events []model.Event, state 
 			b.maxTurn = ev.Turn
 		}
 		b.updateStep(state, ev)
+		b.markDone(ev)
 		switch ev.Type {
 		case model.EventSessionCreated:
 			var data struct {
@@ -171,6 +181,10 @@ func (b *recoveryBuilder) fold(ctx context.Context, events []model.Event, state 
 				b.mode = data.To
 			}
 		case model.EventTurnStarted:
+			// 新 turn 从干净状态开始；Done 只属于当前未完成 turn。
+			b.done = nil
+			b.doneSeen = map[string]bool{}
+			b.fanoutBranches = map[string]int{}
 			if ev.Turn > 0 {
 				if ev.Turn > state.Turn {
 					state.Turn = ev.Turn
@@ -226,6 +240,17 @@ func (b *recoveryBuilder) fold(ctx context.Context, events []model.Event, state 
 				b.stepUsage = b.stepUsage.Add(data.Usage)
 				b.stepUsageSeen = true
 			}
+		case model.EventTurnCompleted:
+			var data struct {
+				Status string `json:"status"`
+			}
+			if json.Unmarshal(ev.Data, &data) == nil && data.Status != "" {
+				b.turnStatus = data.Status
+			}
+		case model.EventSessionFailed:
+			b.turnStatus = "failed"
+		case model.EventSessionInterrupted:
+			b.turnStatus = "interrupted"
 		case model.EventApprovalResolved:
 			b.handleApprovalResolved(ev)
 		case model.EventContextCompacted:
@@ -237,6 +262,84 @@ func (b *recoveryBuilder) fold(ctx context.Context, events []model.Event, state 
 		}
 	}
 	return nil
+}
+
+// markDone 记录当前 turn 已成功完成、恢复时可以跳过的 step。
+// 失败的节点不算完成；fanout 组要等三个分支全部完成才算 join 完成。
+func (b *recoveryBuilder) markDone(ev model.Event) {
+	if ev.Step == "" {
+		return
+	}
+	stepID := graphStepID(ev.Step, ev.Node)
+	if stepID == "" {
+		return
+	}
+	if !eventSucceeded(ev) {
+		return
+	}
+	if stepID == "fanout" {
+		if ev.Type == model.EventNodeCompleted && ev.Node == model.NodeDeliberate {
+			b.fanoutBranches[stepID]++
+			if b.fanoutBranches[stepID] < 3 {
+				return
+			}
+		} else {
+			// step_completed 按分支逐个到达，不能作为 join 完成信号。
+			return
+		}
+	}
+	if b.doneSeen == nil {
+		b.doneSeen = map[string]bool{}
+	}
+	if b.doneSeen[stepID] {
+		return
+	}
+	b.doneSeen[stepID] = true
+	b.done = append(b.done, stepID)
+	sort.Strings(b.done)
+}
+
+func eventSucceeded(ev model.Event) bool {
+	switch ev.Type {
+	case model.EventNodeCompleted, model.EventStepCompleted:
+	default:
+		return false
+	}
+	if len(ev.Data) == 0 {
+		return true
+	}
+	var data struct {
+		Status  string `json:"status"`
+		Verdict *struct {
+			Pass bool `json:"pass"`
+		} `json:"verdict"`
+	}
+	if err := json.Unmarshal(ev.Data, &data); err != nil {
+		return false
+	}
+	if ev.Node == model.NodeVerifier && data.Verdict != nil && !data.Verdict.Pass {
+		return false
+	}
+	return data.Status == "" || data.Status == "ok"
+}
+
+// graphStepID 从 "plan.round-1.fanout.deliberate" 提取图里的 step ID。
+func graphStepID(step string, node model.NodeName) string {
+	parts := strings.Split(strings.TrimSpace(step), ".")
+	for _, part := range parts {
+		if model.Mode(part).Valid() || strings.HasPrefix(part, "round-") {
+			continue
+		}
+		if isNodeName(part) {
+			// 只有节点名：step ID 与节点同名。
+			return part
+		}
+		return part // fanout / aggregation 等 phase 才是 step ID。
+	}
+	if node != "" {
+		return string(node)
+	}
+	return ""
 }
 
 // updateStep 解析 step 字符串（如 plan.round-1.verifier）为 model.StepRef。

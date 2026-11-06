@@ -31,6 +31,7 @@ type runtimeImpl struct {
 	repairer  Repairer
 	truncator Truncator
 	workDir   string
+	deny      approval.HardDeny
 }
 
 // NewRuntime 构造执行面。校验、修复、截断在运行期内装配，调用方只提供 Deps。
@@ -43,6 +44,7 @@ func NewRuntime(cfg config.View, reg Registry, deps Deps) Runtime {
 		repairer:  NewRepairer(),
 		truncator: NewTruncator(cfg, deps.Store),
 		workDir:   workDirOf(cfg),
+		deny:      approval.NewHardDeny(cfg),
 	}
 }
 
@@ -71,6 +73,8 @@ type messageBody struct {
 	Error     *ToolError      `json:"error,omitempty"`
 	Truncated bool            `json:"truncated,omitempty"`
 	OutputRef string          `json:"outputRef,omitempty"`
+	// ExitCode 在输出被截断时保留 bash/verifier 的关键结果（§10.10）。
+	ExitCode int `json:"exitCode,omitempty"`
 }
 
 // ExecuteBatch 实现 Runtime。
@@ -196,7 +200,7 @@ func (r *runtimeImpl) prepare(ctx context.Context, node model.NodeName, st *call
 	st.tool = tool
 	st.spec = spec
 
-	raw := bytes.TrimSpace(st.call.Arguments)
+	raw := unwrapArguments(bytes.TrimSpace(st.call.Arguments))
 	if len(raw) == 0 {
 		raw = []byte("{}")
 	}
@@ -211,7 +215,11 @@ func (r *runtimeImpl) prepare(ctx context.Context, node model.NodeName, st *call
 	}
 	st.args = args
 
-	class, needApproval := r.effectiveApproval(ctx, name, spec, args)
+	class, needApproval, terr := r.effectiveApproval(ctx, name, spec, args)
+	if terr != nil {
+		st.fail = terr
+		return
+	}
 	if !needApproval || r.deps.Approver == nil {
 		st.approval = approvalAuto
 		return
@@ -344,7 +352,7 @@ func (r *runtimeImpl) finish(ctx context.Context, st *callState, res Result) (mo
 		msg.Content = encodeToolError(te)
 		return msg, finishedResult{ok: false, err: te, meta: res.Meta}
 	}
-	body := messageBody{OK: true, Data: preview, Truncated: true, OutputRef: ref.Name}
+	body := messageBody{OK: true, Data: preview, Truncated: true, OutputRef: ref.Name, ExitCode: meta.ExitCode}
 	encoded, merr := json.Marshal(body)
 	if merr != nil {
 		te := &ToolError{Code: "internal", Message: "截断结果无法序列化：" + merr.Error()}
@@ -526,4 +534,16 @@ func pathsFromArgs(args map[string]any) []string {
 func commandFromArgs(args map[string]any) string {
 	s, _ := args["command"].(string)
 	return s
+}
+
+// unwrapArguments 解开 provider 层为保留非法 JSON 而包成的 JSON 字符串。
+func unwrapArguments(raw []byte) []byte {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) >= 2 && trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err == nil {
+			return bytes.TrimSpace([]byte(s))
+		}
+	}
+	return trimmed
 }

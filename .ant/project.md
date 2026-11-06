@@ -67,6 +67,7 @@ internal/cli/args_test.go
 internal/cli/cli.go
 internal/cli/prompter.go
 internal/cli/render.go
+internal/cli/resume_test.go
 internal/cli/subcommands.go
 internal/config/
 internal/config/config.go
@@ -92,11 +93,13 @@ internal/model/context.go
 internal/model/enums.go
 internal/model/error.go
 internal/model/event.go
+internal/model/hash.go
 internal/model/json.go
 internal/model/message.go
 internal/model/model_test.go
 internal/model/pricing.go
 internal/model/sink.go
+internal/model/token.go
 internal/model/tool.go
 internal/model/usage.go
 internal/model/verdict.go
@@ -105,6 +108,8 @@ internal/projectctx/builder.go
 internal/projectctx/generator.go
 internal/projectctx/git.go
 internal/projectctx/hasher.go
+internal/projectctx/model_generator.go
+internal/projectctx/model_generator_test.go
 internal/projectctx/projectctx.go
 internal/projectctx/projectctx_test.go
 internal/projectctx/scanner.go
@@ -117,29 +122,24 @@ internal/provider/
 internal/provider/client.go
 internal/provider/factory.go
 internal/provider/fallback.go
+internal/provider/openai.go
+internal/provider/openai_test.go
 internal/provider/provider.go
 internal/provider/provider_test.go
 internal/provider/registry.go
 internal/provider/retry.go
 internal/provider/router.go
 internal/readcode/
-internal/readcode/index_stub.go
+internal/readcode/index.go
+internal/readcode/index_test.go
 internal/readcode/readcode.go
 internal/session/
+internal/session/done_test.go
 internal/session/fsutil.go
 internal/session/lock.go
 internal/session/recover.go
 internal/session/session.go
-internal/session/session_impl.go
-internal/session/session_test.go
-internal/session/store.go
-internal/statemachine/
-internal/statemachine/budget.go
-internal/statemachine/engine.go
-internal/statemachine/engine_test.go
-internal/statemachine/graphs.go
-internal/statemachine/plangate.go
-...（已省略 17 项）
+...（已省略 35 项）
 ```
 
 ## 入口

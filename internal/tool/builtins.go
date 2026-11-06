@@ -44,19 +44,12 @@ func (t *builtinTool) Spec() model.ToolSpec { return t.spec }
 // Execute 实现 Tool。
 func (t *builtinTool) Execute(ctx context.Context, inv Invocation) (Result, error) {
 	if t.exec == nil {
-		return placeholderResult(t.spec.Name), nil
+		return Result{OK: false, Err: &ToolError{
+			Code:    "internal",
+			Message: "工具 " + t.spec.Name + " 没有执行体",
+		}}, nil
 	}
 	return t.exec(ctx, inv)
-}
-
-// placeholderResult 是本轮文件类工具的占位结果（Spec 契约已完整）。
-func placeholderResult(name string) Result {
-	return Result{OK: false, Err: &ToolError{
-		Code:    "internal",
-		Message: "工具实现将在后续阶段提供",
-		Hint:    "该工具的执行体尚未实现；本轮只能查看其 Spec 或使用 ask",
-		Details: map[string]any{"tool": name, "stage": "placeholder"},
-	}}
 }
 
 // builtinTools 按 §7.3/§10 构造 7 个内置工具。
@@ -77,7 +70,7 @@ func builtinTools(cfg config.View, deps Deps) []Tool {
 				Approval:    model.ApprovalFSReadOutside,
 				MaxOutput:   maxOutput,
 			},
-			exec: placeholderExec(string(model.ToolRead)),
+			exec: readExec(cfg, deps),
 		},
 		&builtinTool{
 			spec: model.ToolSpec{
@@ -89,7 +82,7 @@ func builtinTools(cfg config.View, deps Deps) []Tool {
 				Approval:    model.ApprovalFSReadOutside,
 				MaxOutput:   maxOutput,
 			},
-			exec: placeholderExec(string(model.ToolReadCode)),
+			exec: readCodeExec(cfg, deps),
 		},
 		&builtinTool{
 			spec: model.ToolSpec{
@@ -101,7 +94,7 @@ func builtinTools(cfg config.View, deps Deps) []Tool {
 				Approval:    model.ApprovalFSReadOutside,
 				MaxOutput:   maxOutput,
 			},
-			exec: placeholderExec(string(model.ToolSearch)),
+			exec: searchExec(cfg, deps),
 		},
 		&builtinTool{
 			spec: model.ToolSpec{
@@ -113,7 +106,7 @@ func builtinTools(cfg config.View, deps Deps) []Tool {
 				Approval:    model.ApprovalFSWriteOutside,
 				MaxOutput:   maxOutput,
 			},
-			exec: placeholderExec(string(model.ToolEdit)),
+			exec: editExec(cfg, deps),
 		},
 		&builtinTool{
 			spec: model.ToolSpec{
@@ -125,7 +118,7 @@ func builtinTools(cfg config.View, deps Deps) []Tool {
 				Approval:    model.ApprovalFSWriteOutside,
 				MaxOutput:   maxOutput,
 			},
-			exec: placeholderExec(string(model.ToolWrite)),
+			exec: writeExec(cfg, deps),
 		},
 		&builtinTool{
 			spec: model.ToolSpec{
@@ -137,7 +130,7 @@ func builtinTools(cfg config.View, deps Deps) []Tool {
 				Approval:    model.ApprovalBashRisk,
 				MaxOutput:   maxOutput,
 			},
-			exec: placeholderExec(string(model.ToolBash)),
+			exec: bashExec(cfg, deps),
 		},
 		&askTool{
 			spec: model.ToolSpec{
@@ -154,13 +147,7 @@ func builtinTools(cfg config.View, deps Deps) []Tool {
 	}
 }
 
-func placeholderExec(name string) func(context.Context, Invocation) (Result, error) {
-	return func(context.Context, Invocation) (Result, error) {
-		return placeholderResult(name), nil
-	}
-}
-
-// askTool 是唯一在本轮真正可执行的工具：把问题交给 cli 的 Prompter。
+// askTool 把问题交给 cli 的 Prompter；非交互模式下由 Runtime/节点中止 turn。
 type askTool struct {
 	spec     model.ToolSpec
 	prompter approval.Prompter

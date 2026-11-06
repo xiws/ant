@@ -77,7 +77,7 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest, onDelta func(Delta) 
 		attempts := 0
 		start := time.Now()
 		lastResp, lastErr = ChatResponse{}, nil
-		err := c.retrier.Do(ctx, func(ctx context.Context, n int) error {
+		attemptFn := func(ctx context.Context, n int) error {
 			attempts = n
 			resp, e := base.Chat(ctx, attemptReq, onDelta)
 			if e != nil {
@@ -85,7 +85,14 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest, onDelta func(Delta) 
 			}
 			lastResp = resp
 			return nil
-		})
+		}
+		var err error
+		if c.retrier != nil {
+			err = c.retrier.Do(ctx, attemptFn)
+		} else {
+			err = attemptFn(ctx, 1)
+			attempts = 1
+		}
 		duration := time.Since(start)
 
 		if err == nil {

@@ -233,15 +233,21 @@ func TestClientDoesNotRetryAuth(t *testing.T) {
 	}
 }
 
-func TestFactoryReturnsNotImplemented(t *testing.T) {
+func TestFactoryBuildsAdapterAndKeepsOtterExplicit(t *testing.T) {
 	cfg := testConfig(t, `{"defaultModel":"alpha"}`)
 	f := NewFactory(cfg, logx.Nop())
-	_, err := f.New(cfg.Providers()[0])
-	if err == nil {
-		t.Fatal("abstract-layer factory should be explicit")
+	p, err := f.New(cfg.Providers()[0])
+	if err != nil {
+		t.Fatalf("openai-completions adapter: %v", err)
 	}
-	if model.ClassOf(err) != model.ErrAdapterNotImplemented {
-		t.Fatalf("class = %q", model.ClassOf(err))
+	if p.Name() == "" {
+		t.Fatal("adapter Name 不能为空")
+	}
+	otter := cfg.Providers()[0]
+	otter.API = "otter"
+	_, err = f.New(otter)
+	if err == nil || model.ClassOf(err) != model.ErrAdapterNotImplemented {
+		t.Fatalf("otter adapter should stay explicit, err=%v", err)
 	}
 }
 

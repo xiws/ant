@@ -452,6 +452,11 @@ func (a *App) openAndWire(ctx context.Context) error {
 	})
 
 	engine := statemachine.NewEngine(a.cfg, nodes, a.sink, statemachine.NewPlanGate(approver), a.log)
+	if setter, ok := engine.(interface {
+		SetPlanWriter(statemachine.PlanWriter)
+	}); ok {
+		setter.SetPlanWriter(&sessionPlanWriter{sess: sess, workDir: wd})
+	}
 	a.engine = engine
 
 	target := mode
@@ -551,6 +556,7 @@ func (a *App) startProjectInit(ctx context.Context) {
 	}
 	ch := make(chan struct{})
 	a.initDone = ch
+	sess := a.sess
 	go func() {
 		defer close(ch)
 		doc, err := a.builder.Ensure(ctx, projectctx.EnsureOptions{
@@ -566,6 +572,15 @@ func (a *App) startProjectInit(ctx context.Context) {
 		a.projectMu.Lock()
 		a.projectDoc = prompt.ProjectDoc{Body: doc.Body, Hash: doc.Hash}
 		a.projectMu.Unlock()
+		if sess != nil && doc.Hash != "" {
+			metaCtx := context.WithoutCancel(ctx)
+			if err := sess.UpdateMeta(metaCtx, func(m *session.Meta) error {
+				m.ProjectContextHash = doc.Hash
+				return nil
+			}); err != nil {
+				a.log.Warn("写入 projectContextHash 失败", "err", err)
+			}
+		}
 	}()
 }
 
@@ -678,7 +693,11 @@ func (a *App) replCommand(ctx context.Context, input string) (int, bool) {
 		fmt.Fprintln(a.stdio.Out, "命令：/exit /help /mode <code|plan|ask|council> /new")
 		return 0, false
 	case "/new":
-		a.render.Notice("使用 `ant new` 新建 session（REPL 内新建下一版本提供）")
+		if err := a.newSession(ctx); err != nil {
+			a.render.Notice(formatError(err))
+			return 0, false
+		}
+		a.render.Notice(fmt.Sprintf("已新建 session %s · mode=%s", a.sess.Meta().ID, a.engine.Mode()))
 		return 0, false
 	case "/mode":
 		if len(fields) != 2 {
@@ -699,6 +718,33 @@ func (a *App) replCommand(ctx context.Context, input string) (int, bool) {
 		a.render.Notice("未知命令 " + fields[0] + "；可用：/exit /help /mode /new")
 		return 0, false
 	}
+}
+
+// newSession 在 REPL 内关闭当前 session 并新建一个（§3.5 /new）。
+func (a *App) newSession(ctx context.Context) error {
+	if a.sess == nil || a.store == nil {
+		return usageErrorf("内部错误：session 未装配")
+	}
+	if err := a.sess.Close(); err != nil {
+		return err
+	}
+	a.sess = nil
+	a.engine = nil
+	a.resumed = nil
+	a.history = nil
+	a.summary = ""
+	a.initDone = nil
+	prevNew := a.opts.newSession
+	prevID := a.opts.sessionID
+	a.opts.newSession = true
+	a.opts.sessionID = ""
+	err := a.openAndWire(ctx)
+	a.opts.newSession = prevNew
+	a.opts.sessionID = prevID
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (a *App) switchMode(ctx context.Context, mode model.Mode) error {
@@ -743,6 +789,12 @@ func (a *App) runTurn(ctx context.Context, input string) int {
 		return a.fail(usageErrorf("内部错误：session 未装配"))
 	}
 	a.ensureTitle(ctx, input)
+	if err := a.sess.UpdateMeta(ctx, func(m *session.Meta) error {
+		m.Status = session.StatusRunning
+		return nil
+	}); err != nil {
+		a.log.Warn("标记 session running 失败", "err", err)
+	}
 	if a.tracker != nil {
 		a.tracker.Reset()
 	}
@@ -757,6 +809,13 @@ func (a *App) runTurn(ctx context.Context, input string) int {
 		failure := statemachine.TurnResult{Status: status, ExitCode: code}
 		if a.tracker != nil {
 			failure.Usage = a.tracker.Total()
+		}
+		if a.engine.Mode() == model.ModePlan && a.sess != nil {
+			// plan gate 未确认/非交互时也告知 plan.md 位置（§8.3）。
+			path := filepath.Join(a.workDir(), ".ant", "sessions", a.sess.Meta().ID, "plan.md")
+			if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
+				failure.PlanPath = path
+			}
 		}
 		a.finishTurn(failure)
 		return code
@@ -833,7 +892,8 @@ func shouldResume(st *session.State) bool {
 		return false
 	}
 	if st.Last == model.EventTurnCompleted {
-		return false
+		// 失败/中断的 turn 也会写 turn_completed；只有成功才不恢复（§9.6 第 4 步）。
+		return st.TurnStatus == "failed" || st.TurnStatus == "interrupted"
 	}
 	return st.Turn > 0 || len(st.Pending) > 0 || st.Last == model.EventModelRequest ||
 		st.Last == model.EventSessionInterrupted || st.Last == model.EventSessionFailed
@@ -844,6 +904,7 @@ func resumeState(st *session.State) statemachine.ResumeState {
 		Turn:    st.Turn,
 		Step:    st.Step,
 		Round:   st.Round,
+		Done:    st.Done,
 		History: st.Messages,
 		Summary: st.Summary,
 	}
@@ -970,4 +1031,40 @@ func (a *App) printHelp() {
 		fmt.Fprintln(a.stdio.Out)
 		fmt.Fprintln(a.stdio.Out, commandHelp)
 	}
+}
+
+// sessionPlanWriter 把 plan.md 写到当前 session 目录（§9.1、§8.3）。
+type sessionPlanWriter struct {
+	sess    session.Session
+	workDir string
+}
+
+func (w *sessionPlanWriter) WritePlan(ctx context.Context, plan statemachine.Plan) (string, error) {
+	body := plan.Body
+	if !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	if w.sess != nil {
+		if _, err := w.sess.PutArtifact(ctx, "plan.md", []byte(body), "text/markdown; charset=utf-8"); err != nil {
+			return "", err
+		}
+		if plan.Round > 0 {
+			_, _ = w.sess.PutArtifact(ctx, fmt.Sprintf("artifacts/plan/round-%d.md", plan.Round), []byte(body), "text/markdown; charset=utf-8")
+		}
+		return filepath.Join(w.workDir, ".ant", "sessions", w.sess.Meta().ID, "plan.md"), nil
+	}
+	path := plan.Path
+	if path == "" {
+		return "", nil
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(w.workDir, path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
 }

@@ -32,13 +32,14 @@ type engine struct {
 	graphs  map[model.Mode]Graph
 	initErr error
 
-	mu       sync.Mutex
-	mode     model.Mode
-	turn     int
-	planText string
-	history  []model.Message
-	summary  string
-	budget   *turnBudget // 当前 turn 预算；每个 turn 开始时重置（§8.1）
+	mu         sync.Mutex
+	mode       model.Mode
+	turn       int
+	planText   string
+	planWriter PlanWriter
+	history    []model.Message
+	summary    string
+	budget     *turnBudget // 当前 turn 预算；每个 turn 开始时重置（§8.1）
 }
 
 // NewEngine 构造 turn 生命周期引擎；启动时校验四张内置图。
@@ -149,6 +150,19 @@ func (e *engine) SwitchMode(ctx context.Context, to model.Mode, reason string, c
 	})
 }
 
+// SetPlanWriter 注入 plan 落盘实现；不注入时 PlanPath 只作为位置提示。
+func (e *engine) SetPlanWriter(w PlanWriter) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.planWriter = w
+}
+
+func (e *engine) getPlanWriter() PlanWriter {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.planWriter
+}
+
 // Mode 返回当前模式。
 func (e *engine) Mode() model.Mode {
 	e.mu.Lock()
@@ -219,6 +233,7 @@ func (e *engine) beginResumeTurn(st ResumeState) *turnCtx {
 		summary:  st.Summary,
 		round:    st.Round,
 		done:     done,
+		skipDone: len(done) > 0,
 		resumed:  true,
 		byNode:   map[model.NodeName]StepOutcome{},
 	}
@@ -299,8 +314,9 @@ func (e *engine) walk(ctx context.Context, tc *turnCtx, g Graph, cur string) (Tu
 		}
 		tc.current = step.ID
 
-		// 恢复：Done 中的 step 不重跑，按图推进。
-		if tc.done[step.ID] {
+		// 恢复：Done 中的 step 不重跑，按图推进；一旦开始执行新的 step，
+		// 后续轮次就不能再跳过（失败回环必须重跑入口节点）。
+		if tc.skipDone && tc.done[step.ID] {
 			next, ok := nextAfterDone(g, step.ID, tc.done)
 			if !ok {
 				return e.succeedTurn(ctx, tc, step.ID)
@@ -321,6 +337,7 @@ func (e *engine) walk(ctx context.Context, tc *turnCtx, g Graph, cur string) (Tu
 		if err != nil {
 			return e.stepFailed(ctx, tc, step.ID, err)
 		}
+		tc.skipDone = false
 		e.applyOutcomes(tc, step, outcomes)
 
 		// 无进展：本轮 code 没有 write/edit 改动且 verifier 失败 → 立即中止。
@@ -850,8 +867,23 @@ func (e *engine) interruptTurn(ctx context.Context, tc *turnCtx, stepID string, 
 // planGate 是 plan 通过验证后的人机回路（§8.3）。
 func (e *engine) planGate(ctx context.Context, tc *turnCtx, g Graph) (TurnResult, error) {
 	planPath := e.planPath()
-	tc.planPath = planPath
 	plan := Plan{Path: planPath, Body: tc.planText, Round: tc.round}
+	if writer := e.getPlanWriter(); writer != nil {
+		written, err := writer.WritePlan(ctx, plan)
+		if err != nil {
+			res, emitErr := e.failTurn(ctx, tc, terminalGate, "plan_write_failed", model.ErrInternal,
+				"写入 plan.md 失败："+err.Error(), 1)
+			if emitErr != nil {
+				return res, emitErr
+			}
+			return res, err
+		}
+		if written != "" {
+			planPath = written
+			plan.Path = written
+		}
+	}
+	tc.planPath = planPath
 
 	var (
 		confirmed bool
@@ -883,7 +915,7 @@ func (e *engine) planGate(ctx context.Context, tc *turnCtx, g Graph) (TurnResult
 	return e.succeedTurn(ctx, tc, terminalGate)
 }
 
-// planPath 返回 plan.md 的默认位置；真正的落盘由 session 层完成。
+// planPath 返回 plan.md 的默认位置；真正的落盘由注入的 PlanWriter 完成。
 func (e *engine) planPath() string {
 	if p, ok := e.cfg.(config.Paths); ok {
 		if wd := p.WorkDir(); wd != "" {
@@ -1006,10 +1038,11 @@ type turnCtx struct {
 	msgs    []model.Message // 本 turn 累积：user + 已完成节点文本
 	budget  *turnBudget
 
-	start   string
-	current string
-	resumed bool
-	done    map[string]bool
+	start    string
+	current  string
+	resumed  bool
+	skipDone bool
+	done     map[string]bool
 
 	round     int
 	roundSeen bool

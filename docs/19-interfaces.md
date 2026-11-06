@@ -902,8 +902,9 @@ type PendingCall struct {
 type State struct {
 	Meta     Meta
 	LastSeq  int64
-	Last     model.EventType
-	Turn     int
+	Last       model.EventType
+	TurnStatus string // 最后一个 turn_completed 的 status：ok/failed/interrupted
+	Turn       int
 	Step     model.StepRef
 	Round    int
 	Messages []model.Message
@@ -911,6 +912,7 @@ type State struct {
 	Grants   []model.ApprovalClass
 	Usage    model.Usage
 	Summary  string
+	Done     []string // 当前未完成 turn 中已成功完成的 step ID（§9.6 第 6 步）
 	Warnings []string
 }
 ```
@@ -1389,6 +1391,12 @@ type ResumeState struct {
 	Round   int
 	Done    []string // 已完成 step ID，用于“不重跑”
 	History []model.Message
+	Summary string // 会话折叠摘要
+}
+
+// PlanWriter 由组合根注入，把 plan.md 写入当前 session 目录。
+type PlanWriter interface {
+	WritePlan(ctx context.Context, plan Plan) (string, error)
 }
 
 // Plan 是 Plan gate 的输入（§8.3、§8.8）。
