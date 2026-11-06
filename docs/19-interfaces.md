@@ -1369,6 +1369,7 @@ type TurnInput struct {
 
 type TurnResult struct {
 	Status   Status
+	Duration time.Duration // 本 turn 墙钟耗时（摘要展示，§15.3）
 	Usage    model.Usage
 	Changed  []string
 	Checks   []model.Check
@@ -1639,10 +1640,11 @@ func (a *App) Close() error
 // Renderer 是唯一接触终端输出的接口。
 type Renderer interface {
 	Delta(text string)                 // 流式文本
-	Reasoning(text string)             // 推理增量（可折叠）
-	ToolCall(name string, args []byte)
+	Reasoning(text string)             // 推理增量（合并为 [思考] 块）
+	ToolCall(name string, args []byte) // 只展示关键参数
 	ToolResult(name string, ok bool, dur time.Duration)
 	Notice(msg string)
+	EndMessage() // 一段流式输出结束（补齐换行）
 	TurnSummary(r statemachine.TurnResult, u logx.UsageAggregator)
 }
 ```

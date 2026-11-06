@@ -6,11 +6,13 @@
 
 - 默认输出到 stderr 与 `.ant/logs/ant-YYYYMMDD.log`。
 - 格式：文本（默认）或 JSONL（`log.format=json`）。
+  - 文本格式时间戳使用本地时间（毫秒），便于直接对照终端；JSONL 仍用 UTC RFC3339。
 - 级别：
   - `error`：失败与不可恢复错误；
   - `warn`：降级、审批拒绝、压缩、重试；
-  - `info`：turn/节点/工具的关键事件；
-  - `debug`：请求摘要、prompt hash、完整工具参数（打码）。
+  - `info`：turn/节点/工具的关键事件（`turn_started`、`node_completed`、`tool_call` 等），只带 `turn`/`node`/`step` 等定位字段，不带 `data`；
+  - `debug`：每个事件（含 `model_request`/`model_response`/`message`/`usage` 等明细）与摘要后的 `data`、prompt hash、完整工具参数（打码）。
+- `session_failed` 无论级别都按 `error` 记录，并附带失败信息。
 - 轮转：按日期；单文件超过 50 MB 时切分；默认不自动删除（保留策略后续可配置）。
 - 打码：`Authorization`、`apiKey`、`*_TOKEN`、`*_API_KEY` 值统一替换为 `***`。
 - 日志不替代 session 事件：日志用于排障，事件用于恢复/审计。

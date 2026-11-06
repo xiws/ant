@@ -149,11 +149,13 @@ func (l *logger) log(level Level, msg string, kv []any) {
 	pairs := make([]any, 0, len(l.kvs)+len(kv))
 	pairs = append(pairs, l.kvs...)
 	pairs = append(pairs, kv...)
-	ts := time.Now().UTC().Format(model.EventTSLayout)
+	now := time.Now()
+	tsJSON := now.UTC().Format(model.EventTSLayout)
+	tsText := now.Format("2006-01-02 15:04:05.000")
 
 	var line string
 	if l.format == "json" {
-		fields := map[string]any{"ts": ts, "level": level.String(), "msg": msg}
+		fields := map[string]any{"ts": tsJSON, "level": level.String(), "msg": msg}
 		for i := 0; i+1 < len(pairs); i += 2 {
 			key, ok := pairs[i].(string)
 			if !ok {
@@ -163,14 +165,14 @@ func (l *logger) log(level Level, msg string, kv []any) {
 		}
 		b, err := json.Marshal(fields)
 		if err != nil {
-			b, _ = json.Marshal(map[string]any{"ts": ts, "level": level.String(), "msg": msg})
+			b, _ = json.Marshal(map[string]any{"ts": tsJSON, "level": level.String(), "msg": msg})
 		}
 		line = string(b)
 	} else {
 		var b strings.Builder
-		b.WriteString(ts)
+		b.WriteString(tsText)
 		b.WriteString(" ")
-		b.WriteString(strings.ToUpper(level.String()))
+		b.WriteString(fmt.Sprintf("%-5s", strings.ToUpper(level.String())))
 		b.WriteString(" ")
 		b.WriteString(l.redactor.Redact(msg))
 		for i := 0; i+1 < len(pairs); i += 2 {
@@ -198,6 +200,9 @@ func (l *logger) redactValue(v any) any {
 }
 
 // NewLoggerSink 把事件摘要（打码后）写到日志。大字段只记录引用或占位。
+//
+// 级别约定（§15.1）：info 只记录 turn/节点/工具等关键事件，且不带 data JSON；
+// debug 才输出每个事件与摘要后的 data。session_failed 始终按 error 记录。
 func NewLoggerSink(l Logger, level string) model.EventSink {
 	if l == nil {
 		return model.EventSinkFunc(func(context.Context, *model.Event) error { return nil })
@@ -208,26 +213,49 @@ func NewLoggerSink(l Logger, level string) model.EventSink {
 			return nil
 		}
 		msg := "event " + string(ev.Type)
-		kv := []any{"seq", ev.Seq, "turn", ev.Turn}
-		if ev.Node != "" {
-			kv = append(kv, "node", string(ev.Node))
-		}
-		if ev.Step != "" {
-			kv = append(kv, "step", ev.Step)
-		}
-		if len(ev.Data) > 0 {
-			kv = append(kv, "data", summarizeEventData(ev.Data))
-		}
 		switch {
 		case ev.Type == model.EventSessionFailed:
-			l.Error(msg, kv...)
+			l.Error(msg, eventLogFields(ev, true)...)
 		case lv == LevelDebug:
+			kv := append([]any{"seq", ev.Seq}, eventLogFields(ev, true)...)
 			l.Debug(msg, kv...)
-		default:
-			l.Info(msg, kv...)
+		case eventLoggedAtInfo(ev.Type):
+			l.Info(msg, eventLogFields(ev, false)...)
 		}
 		return nil
 	})
+}
+
+// eventLogFields 返回人类可定位的字段；withData 时附带截断后的事件数据。
+func eventLogFields(ev *model.Event, withData bool) []any {
+	kv := []any{"turn", ev.Turn}
+	if ev.Node != "" {
+		kv = append(kv, "node", string(ev.Node))
+	}
+	if ev.Step != "" {
+		kv = append(kv, "step", ev.Step)
+	}
+	if withData && len(ev.Data) > 0 {
+		kv = append(kv, "data", summarizeEventData(ev.Data))
+	}
+	return kv
+}
+
+// eventLoggedAtInfo 判断事件是否属于 info 级别的“关键事件”；
+// model_request/model_response/message/usage 等明细留给 debug，避免刷屏。
+func eventLoggedAtInfo(t model.EventType) bool {
+	switch t {
+	case model.EventSessionCreated, model.EventModeChanged,
+		model.EventTurnStarted, model.EventTurnCompleted,
+		model.EventNodeStarted, model.EventNodeCompleted,
+		model.EventToolCall, model.EventToolResult,
+		model.EventModelFallback, model.EventContextCompacted,
+		model.EventApprovalRequested, model.EventApprovalResolved,
+		model.EventSessionInterrupted:
+		return true
+	default:
+		return false
+	}
 }
 
 // largeEventDataKeys 是事件中体积大、日志/NDJSON 只保留引用的字段。

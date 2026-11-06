@@ -362,12 +362,14 @@ func (a *App) openAndWire(ctx context.Context) error {
 	}
 
 	// 4. 事件扇出：session 第一（分配 seq）。
+	// renderer 在 logger 之前：模型文本结束补换行（EndMessage）后才能写日志行，
+	// 否则日志会粘在最后一行正文后面。
 	sinks := []model.EventSink{sess}
 	if a.opts.jsonOut {
 		sinks = append(sinks, logx.NewNDJSON(a.stdio.Out))
 	}
-	sinks = append(sinks, logx.NewLoggerSink(a.log, a.cfg.Settings().Log.Level))
 	sinks = append(sinks, renderSink(a.render))
+	sinks = append(sinks, logx.NewLoggerSink(a.log, a.cfg.Settings().Log.Level))
 	if a.tracker != nil {
 		sinks = append(sinks, usageSink(a.tracker))
 	}
@@ -798,6 +800,7 @@ func (a *App) runTurn(ctx context.Context, input string) int {
 	if a.tracker != nil {
 		a.tracker.Reset()
 	}
+	started := time.Now()
 	res, err := a.engine.RunTurn(ctx, statemachine.TurnInput{UserInput: input, History: a.history, Summary: a.summary})
 	if err != nil {
 		a.render.Notice(formatError(err))
@@ -806,7 +809,7 @@ func (a *App) runTurn(ctx context.Context, input string) int {
 		if ctx.Err() != nil || model.ClassOf(err) == model.ErrInterrupted {
 			status = statemachine.StatusInterrupted
 		}
-		failure := statemachine.TurnResult{Status: status, ExitCode: code}
+		failure := statemachine.TurnResult{Status: status, Duration: time.Since(started), ExitCode: code}
 		if a.tracker != nil {
 			failure.Usage = a.tracker.Total()
 		}

@@ -92,9 +92,12 @@ func (e *engine) RunTurn(ctx context.Context, in TurnInput) (TurnResult, error) 
 	if err := e.ready(); err != nil {
 		return TurnResult{Status: StatusFailed, ExitCode: 2}, err
 	}
+	started := time.Now()
 	tc := e.beginRunTurn(in)
 	defer e.endTurn(tc)
-	return e.execute(ctx, tc)
+	res, err := e.execute(ctx, tc)
+	res.Duration = time.Since(started)
+	return res, err
 }
 
 // ResumeTurn 从断点继续：跳过 Done 中的 step，不重跑已完成节点。
@@ -102,16 +105,21 @@ func (e *engine) ResumeTurn(ctx context.Context, st ResumeState) (TurnResult, er
 	if err := e.ready(); err != nil {
 		return TurnResult{Status: StatusFailed, ExitCode: 2}, err
 	}
+	started := time.Now()
 	tc := e.beginResumeTurn(st)
 	g, ok := e.graphs[tc.mode]
 	if !ok {
-		return e.failTurn(ctx, tc, "", "graph_missing", model.ErrConfigInvalid,
+		res, err := e.failTurn(ctx, tc, "", "graph_missing", model.ErrConfigInvalid,
 			fmt.Sprintf("没有模式 %s 的内置图", tc.mode), 2)
+		res.Duration = time.Since(started)
+		return res, err
 	}
 	tc.start = resumeStart(g, st.Step, tc.done)
 	tc.current = tc.start
 	defer e.endTurn(tc)
-	return e.execute(ctx, tc)
+	res, err := e.execute(ctx, tc)
+	res.Duration = time.Since(started)
+	return res, err
 }
 
 // SwitchMode 切换模式；未确认时返回 ErrApprovalRequired 类错误。

@@ -162,3 +162,67 @@ func TestLoggerSinkNilAndLogFormat(t *testing.T) {
 		t.Fatalf("log = %v", m)
 	}
 }
+
+func TestLoggerSinkInfoIsCompact(t *testing.T) {
+	var buf bytes.Buffer
+	sink := NewLoggerSink(NewWithWriter(LevelInfo, &buf), "info")
+
+	ev := &model.Event{
+		Seq:  7,
+		Turn: 3,
+		Node: model.NodeCode,
+		Step: "code.round-1.code",
+		Type: model.EventNodeStarted,
+		Data: model.MustJSON(map[string]any{"promptHash": "sha256:deadbeef", "model": "m"}),
+	}
+	if err := sink.Emit(context.Background(), ev); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"event node_started", "turn=3", "node=code"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("compact log missing %q: %s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"seq=", "data=", "promptHash"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("info log should omit %q: %s", unwanted, out)
+		}
+	}
+
+	// 明细事件在 info 下不输出，避免刷屏。
+	buf.Reset()
+	if err := sink.Emit(context.Background(), &model.Event{Type: model.EventModelRequest, Turn: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("model_request should be debug-only: %s", buf.String())
+	}
+
+	// debug 才带 data。
+	buf.Reset()
+	debug := NewLoggerSink(NewWithWriter(LevelDebug, &buf), "debug")
+	if err := debug.Emit(context.Background(), &model.Event{Type: model.EventModelRequest, Turn: 3, Seq: 8}); err != nil {
+		t.Fatal(err)
+	}
+	if got := buf.String(); !strings.Contains(got, "seq=8") || !strings.Contains(got, "turn=3") {
+		t.Fatalf("debug log = %s", got)
+	}
+}
+
+func TestLoggerSinkAlwaysLogsSessionFailed(t *testing.T) {
+	var buf bytes.Buffer
+	sink := NewLoggerSink(NewWithWriter(LevelInfo, &buf), "info")
+	ev := &model.Event{
+		Type: model.EventSessionFailed,
+		Turn: 2,
+		Data: model.MustJSON(map[string]any{"message": "verification failed"}),
+	}
+	if err := sink.Emit(context.Background(), ev); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "ERROR") || !strings.Contains(out, "verification failed") {
+		t.Fatalf("session_failed should be logged with message: %s", out)
+	}
+}

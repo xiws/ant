@@ -125,6 +125,8 @@ cwd：/Users/me/project
 ## 3.6 输出与日志
 
 - 默认：模型文本、工具调用轨迹、最终摘要输出到 stdout；进度、警告、日志输出到 stderr。
+- 推理模型：`reasoning` 增量合并为一个 `[思考]` 块输出到 stderr，不逐 chunk 换行；模型正文结束或工具调用前自动收尾并补换行。
+- 工具轨迹：只展示关键参数（`command`/`path`/`target` 等，超长截断），不倾倒整段 JSON。
 - `--json`：stdout 只输出 NDJSON 事件（[§9.4](07-session.md#94-ndjson-输出)），人类可读信息全部转到 stderr。
 - 颜色：TTY 且未设置 `NO_COLOR`、`TERM != dumb` 时启用；`--no-color` 强制关闭。
 - 结束摘要至少包含：模式、模型、tokens（输入/输出/缓存/推理）、费用估算（如有定价）、耗时、改动文件、执行过的验证命令、session 路径。

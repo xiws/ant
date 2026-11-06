@@ -30,6 +30,7 @@ type TurnInput struct {
 // TurnResult 是 turn 结果。
 type TurnResult struct {
 	Status   Status
+	Duration time.Duration // 本 turn 的墙钟耗时（摘要展示，§15.3）
 	Usage    model.Usage
 	Changed  []string
 	Checks   []model.Check

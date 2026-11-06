@@ -107,6 +107,51 @@ func hasEvent(events []model.Event, want model.EventType) bool {
 	return false
 }
 
+func TestAppRendersReasoningAsOneBlock(t *testing.T) {
+	settings := `{
+		"schemaVersion": 1,
+		"defaultModel": "fake-model",
+		"defaultMode": "ask",
+		"project": {"autoInit": false},
+		"log": {"level": "error"}
+	}`
+	wd, home := setupWorkspace(t, settings)
+	fp := fake.New().QueueStream(
+		[]provider.Delta{
+			{ReasoningText: "先分析"},
+			{ReasoningText: "一下\n"},
+			{Text: "这就是答案。"},
+		},
+		provider.ChatResponse{
+			Message:      model.Message{Role: model.RoleAssistant, Content: "这就是答案。"},
+			FinishReason: "stop",
+			Usage:        model.Usage{Input: 10, Output: 5},
+		},
+	)
+	capture := &captureSink{}
+
+	code, out, errOut := runApp(t, []string{"new", "-m", "ask", "解释一下"}, wd, home, fp, capture)
+	if code != 0 {
+		t.Fatalf("exit code = %d\nstdout:\n%s\nstderr:\n%s", code, out, errOut)
+	}
+	if strings.Count(errOut, "[思考]") != 1 {
+		t.Fatalf("reasoning should be one block, stderr:\n%s", errOut)
+	}
+	if !strings.Contains(errOut, "[思考] 先分析一下") {
+		t.Fatalf("reasoning block missing, stderr:\n%s", errOut)
+	}
+	if strings.Contains(errOut, "[reasoning]") {
+		t.Fatalf("old per-chunk reasoning format leaked:\n%s", errOut)
+	}
+	// 正文结束后必须先补换行，摘要另起一行，不能粘在正文后面。
+	if !strings.Contains(out, "这就是答案。\n") {
+		t.Fatalf("answer not terminated by newline: %q", out)
+	}
+	if !strings.Contains(out, "[ant] 完成 · mode=ask · model=fake-model · ") {
+		t.Fatalf("turn summary missing duration: %q", out)
+	}
+}
+
 func TestAppAskModeEndToEnd(t *testing.T) {
 	settings := `{
 		"schemaVersion": 1,

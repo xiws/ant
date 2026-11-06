@@ -286,6 +286,9 @@ func TestCodeModePass(t *testing.T) {
 	if res.Status != StatusOK || res.ExitCode != 0 {
 		t.Fatalf("结果 = %+v, want ok/0", res)
 	}
+	if res.Duration <= 0 {
+		t.Fatalf("Duration 应记录 turn 耗时: %v", res.Duration)
+	}
 	if !reflect.DeepEqual(res.Changed, []string{"a.go"}) {
 		t.Fatalf("Changed = %v", res.Changed)
 	}

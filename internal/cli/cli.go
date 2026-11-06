@@ -41,5 +41,6 @@ type Renderer interface {
 	ToolCall(name string, args []byte)
 	ToolResult(name string, ok bool, dur time.Duration)
 	Notice(msg string)
+	EndMessage() // 一段流式输出结束（补齐换行）
 	TurnSummary(r statemachine.TurnResult, u logx.UsageAggregator)
 }
