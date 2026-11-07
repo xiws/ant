@@ -149,6 +149,44 @@ func TestOpenAIStreamAccumulatesToolCalls(t *testing.T) {
 	}
 }
 
+// 回归：provider 把换行作为独立 chunk 发送时，不能被 TrimSpace 吞掉，
+// 否则 Markdown 会被压成一行（见 decodeContent）。
+func TestOpenAIStreamKeepsWhitespaceOnlyDeltas(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		chunks := []string{
+			`{"choices":[{"delta":{"content":"# Title"}}]}`,
+			`{"choices":[{"delta":{"content":"\n"}}]}`,
+			`{"choices":[{"delta":{"content":"- a"}}]}`,
+			`{"choices":[{"delta":{"content":"\n"}}]}`,
+			`{"choices":[{"delta":{"content":"\n"}}]}`,
+			`{"choices":[{"delta":{"content":"- b"}}]}`,
+			`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+		}
+		for _, chunk := range chunks {
+			fmt.Fprintf(w, "data: %s\n\n", chunk)
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	p, _ := NewOpenAICompletionsAdapter(openAISpec(srv.URL))
+	var streamed strings.Builder
+	resp, err := p.Chat(context.Background(), ChatRequest{
+		Model: "alias", Messages: []model.Message{{Role: model.RoleUser, Content: "hi"}}, Stream: true,
+	}, func(d Delta) error { streamed.WriteString(d.Text); return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# Title\n- a\n\n- b"
+	if resp.Message.Content != want {
+		t.Fatalf("content = %q, want %q", resp.Message.Content, want)
+	}
+	if streamed.String() != want {
+		t.Fatalf("streamed = %q, want %q", streamed.String(), want)
+	}
+}
+
 func TestOpenAIErrorClassification(t *testing.T) {
 	cases := []struct {
 		status int

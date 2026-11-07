@@ -618,8 +618,16 @@ func normalizeArguments(raw json.RawMessage) json.RawMessage {
 }
 
 func decodeContent(raw string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
 	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" || trimmed == "null" {
+	if trimmed == "" {
+		// 纯空白增量（最常见的是单个 "\n"）是正文的一部分，必须原样保留；
+		// 否则流式输出会把换行全部吞掉，Markdown 被压成一行。
+		return raw, nil
+	}
+	if trimmed == "null" {
 		return "", nil
 	}
 	if strings.HasPrefix(trimmed, "[") {
