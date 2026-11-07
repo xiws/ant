@@ -1,5 +1,5 @@
 {
   "schemaVersion": 1,
   "defaultModel": "ornith-1.5:9b",
-  "log": { "level": "info", "format": "text", "file": "" }
+  "log": { "level": "error", "format": "text", "file": "" }
 }

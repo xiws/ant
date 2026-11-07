@@ -67,6 +67,7 @@ internal/cli/args_test.go
 internal/cli/cli.go
 internal/cli/prompter.go
 internal/cli/render.go
+internal/cli/render_test.go
 internal/cli/resume_test.go
 internal/cli/subcommands.go
 internal/config/
@@ -138,8 +139,7 @@ internal/session/done_test.go
 internal/session/fsutil.go
 internal/session/lock.go
 internal/session/recover.go
-internal/session/session.go
-...（已省略 35 项）
+...（已省略 36 项）
 ```
 
 ## 入口
