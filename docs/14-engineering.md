@@ -39,7 +39,8 @@ pkg/                             # v1 保留为空，不承诺公共 API
 | `golang.org/x/mod` | 解析 `go.mod` | Go 官方维护 |
 | `github.com/sabhiram/go-gitignore`（或等价轻量库） | 解析 `.gitignore` | search/project 扫描需要；避免依赖系统 git |
 | `github.com/peterh/liner`（或等价轻量 readline） | REPL 历史/行编辑 | 非 TTY 时回退 `bufio` |
-| `golang.org/x/term` | TTY 检测 | Go 官方维护 |
+| `golang.org/x/term` | TTY 检测与终端宽度 | Go 官方维护 |
+| `github.com/charmbracelet/glamour` | 终端 Markdown 渲染 | 正文可读性；按块渲染保留流式，非 TTY 可回退纯文本；不是 TUI 框架 |
 
 - **不引入**：数据库、TUI 框架、Web 框架、通用 agent 框架、重型 diff 库。
 - 所有依赖必须支持 `CGO_ENABLED=0` 与三大平台。
@@ -63,7 +64,7 @@ pkg/                             # v1 保留为空，不承诺公共 API
 
 - 启动到可交互 < 100 ms（不阻塞在项目扫描）。
 - 项目上下文生成异步/带进度，不阻塞首轮对话。
-- 流式渲染，不等待完整响应。
+- Markdown 按完整块流式渲染（段落/代码围栏），不等待整段响应。
 - `read_code` 按需解析包并缓存索引（session 内）。
 - `search` 流式遍历，达到上限即停。
 - session 折叠 1 万事件 < 1 s。

@@ -134,7 +134,7 @@ flowchart TD
 | `projectctx` | `Scanner` / `Hasher` / `Generator` | 扫描、hash、模型摘要 | `projectctx.*` | `projectctx.Builder` |
 | `logx` | `Logger` | 分级日志与打码 | `logx.logger` | 几乎所有模块 |
 | `logx` | `Sink` | 事件扇出（文件/NDJSON/日志） | `logx.*` | `cli` 组装 |
-| `cli` | `Renderer` | 文本/NDJSON/turn 摘要渲染 | `cli.renderText`、`cli.renderJSON` | `App` |
+| `cli` | `Renderer` | Markdown/纯文本/NDJSON/turn 摘要渲染 | `cli.renderText`、`cli.renderJSON` | `App` |
 
 > “生产实现”一列是**命名建议**（`包名.类型`），不是路径承诺；具体文件划分以 [§16.1](14-engineering.md#161-建议包结构) 为准。
 
@@ -1639,12 +1639,12 @@ func (a *App) Close() error
 
 // Renderer 是唯一接触终端输出的接口。
 type Renderer interface {
-	Delta(text string)                 // 流式文本
-	Reasoning(text string)             // 推理增量（合并为 [思考] 块）
-	ToolCall(name string, args []byte) // 只展示关键参数
+	Delta(text string)                 // 流式文本（TTY 下按 Markdown 块渲染）
+	Reasoning(text string)             // 推理增量（彩色思考块；纯文本回退 [思考]）
+	ToolCall(name string, args []byte) // 关键参数 + 彩色工具块
 	ToolResult(name string, ok bool, dur time.Duration)
 	Notice(msg string)
-	EndMessage() // 一段流式输出结束（补齐换行）
+	EndMessage() // 一段流式输出结束（补齐换行并 flush Markdown）
 	TurnSummary(r statemachine.TurnResult, u logx.UsageAggregator)
 }
 ```

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/glamour"
 	"github.com/xiws/ant/internal/logx"
 	"github.com/xiws/ant/internal/model"
 	"github.com/xiws/ant/internal/statemachine"
@@ -19,9 +20,10 @@ import (
 // textRenderer 是默认终端渲染器。
 //
 // 可读性约定：
-//   - 思考增量合并成一个 [思考] 块，而不是每个 chunk 一行；
-//   - 一段模型文本结束后补换行（EndMessage），避免与后续日志/摘要粘在一起；
-//   - 工具调用只展示关键参数（command/path/target…），不倾倒整段 JSON。
+//   - TTY 下用 Glamour 按 Markdown 块渲染模型正文（保留流式：完整块到达即渲染）；
+//   - 思考/工具/结果使用不同颜色、带左色块的独立块，不使用闪烁 SGR；
+//   - 过程块与结果块之间留空行，长过程里也能一眼定位最终答案；
+//   - 非 TTY 或 --no-color 时退回纯文本：正文原样输出，过程用 [思考]/[tool] 前缀。
 type textRenderer struct {
 	mu          sync.Mutex
 	out         io.Writer
@@ -32,6 +34,15 @@ type textRenderer struct {
 	lineStart   bool // stdout 是否位于行首
 	thinking    bool // 正在输出思考块
 	thinkEOL    bool // 思考块（stderr）是否位于行首
+
+	// rich 模式（TTY + color）：Glamour Markdown + ANSI 过程块。
+	rich    bool
+	width   int
+	md      *glamour.TermRenderer
+	mdBuf   string
+	outKind blockKind
+	outAny  bool
+	errAny  bool
 }
 
 func newTextRenderer(out, err io.Writer) *textRenderer {
@@ -43,6 +54,15 @@ func (r *textRenderer) closeThinking() {
 	if !r.thinking {
 		return
 	}
+	if r.rich {
+		if !r.thinkEOL {
+			fmt.Fprint(r.err, ansiReset+"\n")
+		}
+		r.thinking = false
+		r.thinkEOL = true
+		r.errAny = true
+		return
+	}
 	if !r.thinkEOL {
 		fmt.Fprintln(r.err)
 	}
@@ -50,11 +70,19 @@ func (r *textRenderer) closeThinking() {
 	r.thinkEOL = true
 }
 
-// EndMessage 结束一段流式输出：补换行并收掉未闭合的思考块。
+// EndMessage 结束一段流式输出：渲染未完成的 Markdown 块并收掉思考块。
 func (r *textRenderer) EndMessage() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.closeThinking()
+	if r.rich {
+		r.flushMarkdown()
+		if !r.lineStart {
+			fmt.Fprintln(r.out)
+			r.lineStart = true
+		}
+		return
+	}
 	if !r.lineStart {
 		fmt.Fprintln(r.out)
 		r.lineStart = true
@@ -68,6 +96,10 @@ func (r *textRenderer) Delta(text string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.closeThinking()
+	if r.rich {
+		r.appendMarkdown(text)
+		return
+	}
 	fmt.Fprint(r.out, text)
 	r.lineStart = strings.HasSuffix(text, "\n")
 }
@@ -78,6 +110,17 @@ func (r *textRenderer) Reasoning(text string) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.rich {
+		if !r.thinking {
+			r.beforeErrBlock()
+			fmt.Fprintf(r.err, "%s %s\n", colorBar(colorThinkingBar), colorChip("思考", colorThinkingChip, colorOnChip))
+			r.thinking = true
+			r.thinkEOL = true
+			r.errAny = true
+		}
+		r.writeThinkingText(text)
+		return
+	}
 	if !r.thinking {
 		if !r.lineStart {
 			fmt.Fprintln(r.out)
@@ -91,10 +134,53 @@ func (r *textRenderer) Reasoning(text string) {
 	r.thinkEOL = strings.HasSuffix(text, "\n")
 }
 
+// writeThinkingText 按行加左色块，空行保持为空行，避免整屏“▌”。
+func (r *textRenderer) writeThinkingText(text string) {
+	prefix := colorBar(colorThinkingBar) + " " + ansiSGR("3", "38;5;"+strconv.Itoa(colorMuted))
+	for len(text) > 0 {
+		i := strings.IndexByte(text, '\n')
+		if i == 0 {
+			fmt.Fprint(r.err, "\n")
+			text = text[1:]
+			r.thinkEOL = true
+			continue
+		}
+		if r.thinkEOL {
+			fmt.Fprint(r.err, prefix)
+			r.thinkEOL = false
+		}
+		if i < 0 {
+			fmt.Fprint(r.err, text)
+			return
+		}
+		fmt.Fprint(r.err, text[:i]+ansiReset+"\n")
+		text = text[i+1:]
+		r.thinkEOL = true
+	}
+}
+
 func (r *textRenderer) ToolCall(name string, args []byte) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.closeThinking()
+	if r.rich {
+		r.flushMarkdown()
+		r.beforeTool()
+		label := truncateRunes(name, 18)
+		limit := r.width - 30 - len([]rune(label))
+		if limit < 24 {
+			limit = 24
+		}
+		line := fmt.Sprintf("%s %s %s", colorBar(colorToolBar), colorChip("工具", colorToolChip, colorOnChip), paint(label, "1", "38;5;252"))
+		if arg := summarizeToolArgs(args); arg != "" {
+			line += " " + paint(truncateRunes(arg, limit), "38;5;"+strconv.Itoa(colorMuted))
+		}
+		fmt.Fprintln(r.out, line)
+		r.outKind = blockTool
+		r.outAny = true
+		r.lineStart = true
+		return
+	}
 	if !r.lineStart {
 		fmt.Fprintln(r.out)
 	}
@@ -110,6 +196,23 @@ func (r *textRenderer) ToolResult(name string, ok bool, dur time.Duration) {
 	if !ok {
 		status = "failed"
 	}
+	if r.rich {
+		r.flushMarkdown()
+		r.beforeTool()
+		label, bar, chip := "完成", colorOKBar, colorOKChip
+		if !ok {
+			label, bar, chip = "失败", colorFailBar, colorFailChip
+		}
+		line := fmt.Sprintf("%s %s %s", colorBar(bar), colorChip(label, chip, colorOnChip), paint(name, "38;5;252"))
+		if d := formatDuration(dur); d != "" {
+			line += " " + paint("· "+d, "38;5;"+strconv.Itoa(colorMuted))
+		}
+		fmt.Fprintln(r.out, line)
+		r.outKind = blockTool
+		r.outAny = true
+		r.lineStart = true
+		return
+	}
 	if !r.lineStart {
 		fmt.Fprintln(r.out)
 	}
@@ -121,6 +224,12 @@ func (r *textRenderer) Notice(msg string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.closeThinking()
+	if r.rich {
+		r.beforeErrBlock()
+		fmt.Fprintf(r.err, "%s %s %s\n", colorBar(colorNoticeBar), colorChip("提示", colorNoticeChip, 252), paint(msg, "38;5;250"))
+		r.errAny = true
+		return
+	}
 	if !r.lineStart {
 		fmt.Fprintln(r.out)
 		r.lineStart = true
@@ -132,19 +241,28 @@ func (r *textRenderer) TurnSummary(res statemachine.TurnResult, u logx.UsageAggr
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.closeThinking()
+	if r.rich {
+		r.flushMarkdown()
+	}
 	if !r.lineStart {
 		fmt.Fprintln(r.out)
+		r.lineStart = true
 	}
 	fmt.Fprintln(r.out) // 与模型正文之间留一个空行
 
 	label := "完成"
+	bar, chip := colorOKBar, colorOKChip
 	switch res.Status {
 	case statemachine.StatusFailed:
-		label = "失败"
+		label, bar, chip = "失败", colorFailBar, colorFailChip
 	case statemachine.StatusInterrupted:
-		label = "已中断"
+		label, bar, chip = "已中断", 136, 214
 	}
-	fmt.Fprintf(r.out, "[ant] %s · mode=%s · model=%s", label, r.mode, r.modelAlias)
+	if r.rich {
+		fmt.Fprintf(r.out, "%s %s · mode=%s · model=%s", colorBar(bar), colorChip(label, chip, colorOnChip), r.mode, r.modelAlias)
+	} else {
+		fmt.Fprintf(r.out, "[ant] %s · mode=%s · model=%s", label, r.mode, r.modelAlias)
+	}
 	if d := formatDuration(res.Duration); d != "" {
 		fmt.Fprintf(r.out, " · %s", d)
 	}
@@ -184,6 +302,7 @@ func (r *textRenderer) TurnSummary(res statemachine.TurnResult, u logx.UsageAggr
 	if r.sessionPath != "" {
 		fmt.Fprintf(r.out, "      session：%s\n", r.sessionPath)
 	}
+	r.outKind = blockAnswer
 }
 
 // jsonRenderer 在 --json 模式下不写 stdout（事件由 NDJSON sink 输出）。
@@ -333,9 +452,5 @@ func oneLine(s string, limit int) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i] + " …"
 	}
-	r := []rune(s)
-	if len(r) <= limit {
-		return s
-	}
-	return string(r[:limit]) + "…"
+	return truncateRunes(s, limit)
 }

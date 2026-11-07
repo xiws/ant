@@ -268,11 +268,25 @@ func (a *App) pickRenderer() Renderer {
 		return &jsonRenderer{err: a.stdio.Err}
 	}
 	r := newTextRenderer(a.stdio.Out, a.stdio.Err)
-	if a.cfg != nil {
-		r.mode = a.cfg.Settings().DefaultMode
-		r.modelAlias = initialAlias(a.cfg, a.opts)
+	if a.cfg == nil {
+		return r
 	}
-	return r
+	settings := a.cfg.Settings()
+	r.mode = settings.DefaultMode
+	r.modelAlias = initialAlias(a.cfg, a.opts)
+	if !colorEnabled(settings.UI.Color, a.stdio.IsTTY, a.stdio.Env) {
+		return r
+	}
+	rich, err := newRichTextRenderer(a.stdio.Out, a.stdio.Err, terminalWidth(a.stdio.Out), markdownStyle(a.stdio.Env))
+	if err != nil {
+		if a.log != nil {
+			a.log.Warn("Markdown 渲染不可用，回退纯文本: " + err.Error())
+		}
+		return r
+	}
+	rich.mode = r.mode
+	rich.modelAlias = r.modelAlias
+	return rich
 }
 
 func (a *App) newLogger(s config.LogSettings) logx.Logger {

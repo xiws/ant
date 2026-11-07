@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 版本 | v1.3（设计规格；生产实现已完成；文档按模块拆分） |
+| 版本 | v1.4（设计规格；生产实现已完成；文档按模块拆分） |
 | 仓库 | `github.com/xiws/ant` |
 | 基线 | Go 1.26.8；macOS / Linux / Windows |
 | 文档目的 | 把原始需求补全为可直接指导实现、可验收的设计规格 |
@@ -12,7 +12,7 @@
 | 规范用语 | **必须** = MUST，**应该** = SHOULD，**可以** = MAY |
 | 结构 | 本 README 为索引；正文按 20 个模块（0–19）拆分在 `docs/` |
 
-本文档是原始 README 的补全版，也是后续实现的唯一事实来源。v1.3 的**抽象层、组合根与生产实现均已落地**（`internal/`）：可编译、可测试，真实 `openai-completions` 适配器、全部内置工具、Go 符号索引、plan 落盘与项目上下文模型摘要均可用。仅 `otter` 因缺少公开协议按设计保留 `adapter_not_implemented`（§5.6）。
+本文档是原始 README 的补全版，也是后续实现的唯一事实来源。v1.4 的**抽象层、组合根与生产实现均已落地**（`internal/`）：可编译、可测试，真实 `openai-completions` 适配器、全部内置工具、Go 符号索引、plan 落盘与项目上下文模型摘要均可用。仅 `otter` 因缺少公开协议按设计保留 `adapter_not_implemented`（§5.6）。
 
 ## 安全提示
 
@@ -111,7 +111,7 @@
 | `internal/statemachine` | 已实现：4 张内置图、fan-out/join、轮次、Plan gate、plan.md 落盘、Resume（Done 跳过已完成 step）、退出码 |
 | `internal/projectctx` | 已实现：扫描、hash 失效、确定性骨架、模型摘要与确定性回落、标记保护、原子写与锁 |
 | `internal/logx` | 已实现：分级日志、打码、NDJSON 扇出、用量聚合 |
-| `internal/cli` | 已实现：参数/子命令/REPL（含 `/new`）/`Renderer`/`Prompter`/组合根与退出码映射 |
+| `internal/cli` | 已实现：参数/子命令/REPL（含 `/new`）/`Renderer`/`Prompter`/组合根与退出码映射；TTY 下 Glamour Markdown + 彩色过程块，纯文本/NDJSON 回退 |
 | `cmd/ant` | 已实现：薄入口 `os.Exit(cli.Run(...))` |
 
 实现期对 [§21](docs/19-interfaces.md) 的增量（均为字段级、见 [D44](docs/17-adr.md#19-设计决策记录adr)）：
@@ -122,7 +122,7 @@
 
 已知限制：`otter` 适配器因原始需求未给出协议，v1 只保留 `adapter_not_implemented` 语义；其余模块均已实现。
 
-验证命令（本机无需网络）：
+验证命令（首次构建需 `go mod download` 拉取 Glamour 依赖）：
 
 ```bash
 go build ./...

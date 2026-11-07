@@ -36,7 +36,7 @@
 每个 turn 结束打印：
 
 ```text
-[ant] 完成 · mode=code · model=deepseek-v4-flash · 12.3s
+▌ 完成 · mode=code · model=deepseek-v4-flash · 12.3s
       节点：code(2.1k in / 0.8k out) → verifier(1.4k in / 0.3k out)
       tokens：in 3.5k / out 1.1k / cached 0 / reasoning 0
       费用：$0.0000（未配置 pricing）
@@ -45,7 +45,7 @@
       session：.ant/sessions/20261030-094704-3f9a2c
 ```
 
-- 失败时同样打印，并给出失败点与续跑命令。
+- 失败/中断时状态块变红/橙，并给出失败点与续跑命令；纯文本回退时首行为 `[ant] 完成 · …`。
 - `--json` 时摘要作为 `turn_completed` 事件的一部分。
 
 ## 15.4 用量与成本
