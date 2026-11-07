@@ -10,7 +10,7 @@
 | 需求编号 | `R-<领域>-<序号>` |
 | 决策编号 | `D-<序号>`，汇总见 [ADR](docs/17-adr.md) |
 | 规范用语 | **必须** = MUST，**应该** = SHOULD，**可以** = MAY |
-| 结构 | 本 README 为索引；正文按 20 个模块（0–19）拆分在 `docs/` |
+| 结构 | 本 README 为索引；正文按 20 个模块（0–19）拆分在 `docs/`，另有补充模块 20（本地 Web 服务） |
 
 本文档是原始 README 的补全版，也是后续实现的唯一事实来源。v1.3 的**抽象层、组合根与生产实现均已落地**（`internal/`）：可编译、可测试，真实 `openai-completions` 适配器、全部内置工具、Go 符号索引、plan 落盘与项目上下文模型摘要均可用。仅 `otter` 因缺少公开协议按设计保留 `adapter_not_implemented`（§5.6）。
 
@@ -39,9 +39,10 @@
 | 14 | 工程实现约束 | [14-engineering.md](docs/14-engineering.md) | 包结构、依赖、跨平台、CI、版本 |
 | 15 | 测试策略与验收 | [15-testing.md](docs/15-testing.md) | 单测、fake provider、e2e、验收 |
 | 16 | 需求追溯矩阵 | [16-traceability.md](docs/16-traceability.md) | 原需求 → 章节 → 决策 |
-| 17 | 设计决策记录（ADR） | [17-adr.md](docs/17-adr.md) | D1–D43 设计决策记录 |
+| 17 | 设计决策记录（ADR） | [17-adr.md](docs/17-adr.md) | D1–D45 设计决策记录 |
 | 18 | 附录 | [18-appendix.md](docs/18-appendix.md) | 配置示例、错误码、CLI 帮助、已知问题 |
 | 19 | 模块接口与串联（§21） | [19-interfaces.md](docs/19-interfaces.md) | 各模块对外接口、组合根装配、七条调用链与 10 张图 |
+| 20 | 本地 Web 服务（`ant serve`，§22，补充） | [20-web-serve.md](docs/20-web-serve.md) | 参考页面拆解、无账号本地 Web、会话/轨迹/改动展示、API 与文件清单 |
 
 ## 阅读路径
 
@@ -52,6 +53,7 @@
 | 评审 | [00](docs/00-overview.md) → [05](docs/05-nodes.md) → [06](docs/06-state-machine.md) → [08](docs/08-tools.md) → [10](docs/10-security.md) → [15](docs/15-testing.md) → [17](docs/17-adr.md) |
 | 追溯原需求 | [16](docs/16-traceability.md) |
 | 接口对接/并行开发 | [19](docs/19-interfaces.md) → [05](docs/05-nodes.md) → [08](docs/08-tools.md) → [07](docs/07-session.md) |
+| 本地 Web 服务 | [20](docs/20-web-serve.md) → [07](docs/07-session.md) → [08](docs/08-tools.md) → [19](docs/19-interfaces.md) |
 
 ## 核心决策速览
 
@@ -67,7 +69,7 @@
 | D32 | 文件工具全部 workspace 约束 + 审批 + 硬拒绝 |
 | D43 | 模块间以内部接口对接，组合根集中装配 |
 
-完整 D1–D43 见 [ADR](docs/17-adr.md)。
+完整 D1–D45 见 [ADR](docs/17-adr.md)；D46–D50 见 [本地 Web 服务](docs/20-web-serve.md#2213-设计决策与权衡)。
 
 ## 编号与导航
 

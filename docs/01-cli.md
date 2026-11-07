@@ -12,6 +12,7 @@ ant show <session-id>
 ant init [--force]
 ant models
 ant config
+ant serve [--listen addr] [--open]
 ant version
 ant help
 ```
@@ -32,6 +33,7 @@ ant help
 | `ant init [--force]` | 生成/重新生成项目上下文 | `--force` 忽略 hash |
 | `ant models` | 列出模型别名与能力 | 不显示密钥；标记默认模型与不可用模型 |
 | `ant config` | 打印合并后的配置 | 每个键标注来源（home/workspace/cli）；密钥打码 |
+| `ant serve` | 启动本地只读 Web（§22） | 默认 `127.0.0.1:7788`；只监听回环；不打开/创建 session；不取锁 |
 | `ant version` / `ant help` | 版本/帮助 | `help <command>` 显示子命令帮助 |
 
 **session 选择规则**：
@@ -90,6 +92,8 @@ ID                       UPDATED   MODE   MODEL              TURNS  TOKENS  STAT
 | `3` | 用户中断（SIGINT / Ctrl-C） |
 | `4` | 非交互模式下需要审批或需要用户回答 `ask` |
 | `5` | Provider 重试后仍失败（鉴权、限流、不可用） |
+
+> `ant serve` 是长期进程的例外：收到 SIGINT/SIGTERM 时优雅关闭并返回 `0`；参数/监听地址非法或端口占用返回 `2`；服务运行时错误返回 `1`。详见 [§22](20-web-serve.md#2294-启动输出与退出码)。
 
 ## 3.5 交互与 REPL
 

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 
@@ -33,17 +34,21 @@ type options struct {
 	limit        int
 	filterMode   model.Mode
 	filterStatus session.Status
+
+	listen string // --listen，默认 127.0.0.1:7788
+	open   bool   // --open
 }
 
 var commandNames = map[string]bool{
 	"new": true, "sessions": true, "show": true, "init": true,
 	"models": true, "config": true, "version": true, "help": true,
+	"serve": true,
 }
 
 // parseArgs 解析 `ant [flags] [prompt...]` 与子命令。
 // 首个参数精确匹配子命令名时按子命令处理（§3.1）。
 func parseArgs(args []string) (options, error) {
-	opts := options{limit: 20, nodeModels: map[string]string{}}
+	opts := options{limit: 20, nodeModels: map[string]string{}, listen: "127.0.0.1:7788"}
 	i := 0
 	if len(args) > 0 && commandNames[args[0]] {
 		opts.command = args[0]
@@ -141,6 +146,14 @@ func parseArgs(args []string) (options, error) {
 			opts.force = true
 		case "--events":
 			opts.showEvents = true
+		case "--listen":
+			v, err := value()
+			if err != nil {
+				return opts, err
+			}
+			opts.listen = v
+		case "--open":
+			opts.open = true
 		case "--limit":
 			v, err := value()
 			if err != nil {
@@ -179,7 +192,68 @@ func parseArgs(args []string) (options, error) {
 	if len(opts.rest) > 1 {
 		opts.rest = opts.rest[:1]
 	}
+	if err := validateServeOptions(opts); err != nil {
+		return opts, err
+	}
 	return opts, nil
+}
+
+// validateServeOptions 把 serve 与普通对话参数隔离开（§22.9.5）。
+func validateServeOptions(opts options) error {
+	if opts.command != "serve" {
+		return nil
+	}
+	if opts.prompt != "" || len(opts.rest) > 0 {
+		return usageErrorf("ant serve 不接受任务文本；请直接运行 ant \"prompt\"")
+	}
+	if opts.jsonOut {
+		return usageErrorf("ant serve 不支持 --json（服务日志走 stderr）")
+	}
+	if opts.sessionID != "" || opts.newSession {
+		return usageErrorf("ant serve 不接受 -s/--session 或 --new；它不打开也不创建 session")
+	}
+	if opts.model != "" || opts.mode != "" {
+		return usageErrorf("ant serve 不接受 -p/--model 或 -m/--mode；请用 ant \"prompt\" 设置")
+	}
+	if opts.yes || opts.nonInteractive {
+		return usageErrorf("ant serve 不涉及审批/提问；-y/--non-interactive 无意义")
+	}
+	if err := validateListenAddr(opts.listen); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateListenAddr 校验 --listen 是 host:port 且 host 只允许回环地址。
+func validateListenAddr(addr string) error {
+	host, port, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return usageErrorf("--listen 需要 host:port（如 127.0.0.1:7788）：%v", err)
+	}
+	if host == "" {
+		return usageErrorf("--listen 必须显式指定回环 host（127.0.0.1、localhost 或 ::1）")
+	}
+	if !isLoopbackHost(host) {
+		return usageErrorf("--listen 只允许回环地址（127.0.0.1/localhost/[::1]），实际 %q", host)
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 0 || n > 65535 {
+		return usageErrorf("--listen 端口必须是 0-65535 的整数")
+	}
+	return nil
+}
+
+// isLoopbackHost 报告 host 是否为 localhost 或回环 IP。
+func isLoopbackHost(host string) bool {
+	trimmed := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	trimmed = strings.Trim(trimmed, "[]")
+	if trimmed == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(trimmed); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 func splitFlag(arg string) (name, value string, hasValue bool) {
@@ -213,6 +287,7 @@ Usage:
   ant init [--force]
   ant models
   ant config
+  ant serve [--listen host:port] [--open]
   ant version
   ant help
 
@@ -236,6 +311,10 @@ Flags:
   -h, --help               帮助
       --version            版本
 
+Serve Flags:
+      --listen string      监听地址；只允许回环地址（默认 127.0.0.1:7788）
+      --open               启动后尝试用系统浏览器打开
+
 Exit codes:
   0 成功  1 任务失败  2 用法/配置错误  3 中断  4 需要审批/提问  5 Provider 失败
 `
@@ -245,4 +324,5 @@ ant sessions [--limit N] [--mode M] [--status S] [--json]
 ant init [--force]               生成/刷新 .ant/project.md
 ant models                       列出模型别名与能力
 ant config                       打印合并后的配置（密钥打码）
+ant serve [--listen addr] [--open] 启动本地只读 Web（默认 127.0.0.1:7788）
 ant version                      版本信息`

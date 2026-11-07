@@ -28,6 +28,11 @@ func NewStore(workDir string) Store {
 
 // NewStoreWithClock 与 NewStore 相同，但允许注入时钟（测试用）。
 func NewStoreWithClock(workDir string, clock func() time.Time) Store {
+	return newStore(workDir, clock)
+}
+
+// newStore 返回文件系统实现本身（未导出），供 archive 复用读函数而不经过 Open。
+func newStore(workDir string, clock func() time.Time) *store {
 	if clock == nil {
 		clock = time.Now
 	}

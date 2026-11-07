@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/xiws/ant/internal/agent"
@@ -64,6 +65,9 @@ type App struct {
 
 	fallbackWorkDir string
 	workDirOverride string
+	homeDirOverride string
+	env             []string
+	cfgOverride     config.View
 }
 
 // Run 是唯一进程入口。
@@ -71,7 +75,7 @@ func Run(ctx context.Context, args []string, stdio Stdio) int {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	stdio = normalizeStdio(stdio)
 
@@ -83,7 +87,8 @@ func Run(ctx context.Context, args []string, stdio Stdio) int {
 	defer app.Close()
 
 	code := app.Run(ctx)
-	if ctx.Err() != nil && code == 0 {
+	// serve 是长期进程：SIGINT/SIGTERM 是正常停止方式，退出码保持 0（§22.9.4）。
+	if ctx.Err() != nil && code == 0 && app.opts.command != "serve" {
 		code = 3
 	}
 	return code
@@ -185,6 +190,13 @@ func New(ctx context.Context, args []string, stdio Stdio, ov Overrides) (*App, e
 	if opts.command == "version" || opts.command == "help" {
 		return app, nil
 	}
+	if opts.command == "serve" {
+		// serve 自己做 best-effort 配置加载：配置非法也要能看历史。
+		app.homeDirOverride = ov.HomeDir
+		app.env = stdio.Env
+		app.cfgOverride = ov.Config
+		return app, nil
+	}
 
 	cfg, err := loadConfig(ctx, stdio, ov, opts)
 	if err != nil {
@@ -261,6 +273,37 @@ func (a *App) workDir() string {
 		return wd
 	}
 	return "."
+}
+
+// homeDir 返回 $ANT_HOME（缺省 ~/.ant）；配置不可用时仍能定位 home 文件。
+func (a *App) homeDir() string {
+	if p, ok := a.cfg.(config.Paths); ok && p.HomeDir() != "" {
+		return p.HomeDir()
+	}
+	if p, ok := a.cfgOverride.(config.Paths); ok && p.HomeDir() != "" {
+		return p.HomeDir()
+	}
+	if a.homeDirOverride != "" {
+		return a.homeDirOverride
+	}
+	if v := envValue(a.env, "ANT_HOME"); v != "" {
+		return v
+	}
+	if h, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(h, ".ant")
+	}
+	return ""
+}
+
+// envValue 在 KEY=VALUE 列表中线性查找。
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
 }
 
 func (a *App) pickRenderer() Renderer {
@@ -605,6 +648,8 @@ func (a *App) Run(ctx context.Context) int {
 		return a.runShow(ctx)
 	case "init":
 		return a.runInit(ctx)
+	case "serve":
+		return a.runServe(ctx)
 	}
 
 	if a.engine == nil {
