@@ -21,6 +21,7 @@ internal/context/                # token 估算、预算、压缩、缓存指标
 internal/projectctx/             # 扫描、hash、生成、标记保护
 internal/approval/               # 风险分类、硬拒绝、审批交互
 internal/logx/                   # 日志、打码、NDJSON
+internal/trace/                  # 事件/artifact → 完整链路 HTML/Markdown（ant export）
 internal/version/                # 版本注入
 pkg/                             # v1 保留为空，不承诺公共 API
 ```

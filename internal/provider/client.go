@@ -154,7 +154,11 @@ func (c *Client) emit(ctx context.Context, t model.EventType, data []byte) error
 	if c.sink == nil {
 		return nil
 	}
-	ev := &model.Event{Type: t, Data: data, Node: model.NodeFromContext(ctx)}
+	ev := &model.Event{
+		Type: t, Data: data,
+		Node: model.NodeFromContext(ctx),
+		Run:  model.RunFromContext(ctx),
+	}
 	return c.sink.Emit(ctx, ev)
 }
 

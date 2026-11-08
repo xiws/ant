@@ -111,7 +111,8 @@
 | `internal/statemachine` | 已实现：4 张内置图、fan-out/join、轮次、Plan gate、plan.md 落盘、Resume（Done 跳过已完成 step）、退出码 |
 | `internal/projectctx` | 已实现：扫描、hash 失效、确定性骨架、模型摘要与确定性回落、标记保护、原子写与锁 |
 | `internal/logx` | 已实现：分级日志、打码、NDJSON 扇出、用量聚合 |
-| `internal/cli` | 已实现：参数/子命令/REPL（含 `/new`）/`Renderer`/`Prompter`/组合根与退出码映射；TTY 下 Glamour Markdown + 彩色过程块，纯文本/NDJSON 回退 |
+| `internal/trace` | 已实现：从事件/artifact 重建完整链路，生成单文件 HTML 或 Markdown（`ant export`） |
+| `internal/cli` | 已实现：参数/子命令/REPL（含 `/new`）/`Renderer`/`Prompter`/组合根与退出码映射；TTY 下 Glamour Markdown + 彩色过程块，纯文本/NDJSON 回退；`--verbose` 实时链路详情与 `ant export` 离线报告 |
 | `cmd/ant` | 已实现：薄入口 `os.Exit(cli.Run(...))` |
 
 实现期对 [§21](docs/19-interfaces.md) 的增量（均为字段级、见 [D44](docs/17-adr.md#19-设计决策记录adr)）：

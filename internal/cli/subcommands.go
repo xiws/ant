@@ -136,7 +136,7 @@ func (a *App) runShow(ctx context.Context) int {
 }
 
 func (a *App) printEvents(ctx context.Context, id string) {
-	sess, _, err := a.store.Open(ctx, session.OpenOptions{ID: id, Lock: false})
+	sess, _, err := a.store.Open(ctx, session.OpenOptions{ID: id, ReadOnly: true})
 	if err != nil {
 		a.render.Notice("读取事件失败：" + formatError(err))
 		return

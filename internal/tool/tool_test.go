@@ -1479,3 +1479,29 @@ func keysOf[V any](m map[string]V) []string {
 	sort.Strings(out)
 	return out
 }
+
+func TestRuntimeStampsRunAndToolResultName(t *testing.T) {
+	env := newTestEnv(t, nil)
+	env.add(&stubTool{spec: strictReadSpec(), exec: func(ctx context.Context, inv Invocation) (Result, error) {
+		return Result{OK: true, Data: map[string]any{"content": "ok"}}, nil
+	}})
+	ctx := model.WithRun(context.Background(), "run-42")
+	if _, err := env.runtime().ExecuteBatch(ctx, model.NodeCode, []model.ToolCall{{
+		ID: "call_1", Name: "read", Arguments: json.RawMessage(`{"path":"a.go"}`),
+	}}); err != nil {
+		t.Fatalf("ExecuteBatch: %v", err)
+	}
+	events := env.sink.snapshot()
+	if len(events) != 2 {
+		t.Fatalf("events=%d", len(events))
+	}
+	for _, ev := range events {
+		if ev.Run != "run-42" {
+			t.Fatalf("event %s run=%q", ev.Type, ev.Run)
+		}
+	}
+	data := eventData(t, events[1])
+	if data["name"] != "read" {
+		t.Fatalf("tool_result.name=%v", data["name"])
+	}
+}

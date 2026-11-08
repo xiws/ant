@@ -88,7 +88,7 @@ var knownSettingsKeys = map[string]map[string]bool{
 		"sandbox": true, "project": true,
 	},
 	"log":      {"level": true, "format": true, "file": true},
-	"ui":       {"color": true},
+	"ui":       {"color": true, "verbose": true},
 	"approval": {"policy": true, "allow": true, "deny": true},
 	"limits": {
 		"maxToolTurns": true, "maxRounds": true, "toolTimeoutMs": true,

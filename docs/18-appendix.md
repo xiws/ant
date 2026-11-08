@@ -178,6 +178,7 @@ Usage:
   ant new [flags] [prompt...]
   ant sessions [flags]
   ant show <session-id>
+  ant export [session-id] [--format html|md] [-o path|-] [--events]
   ant init [--force]
   ant models
   ant config
@@ -200,6 +201,10 @@ Flags:
       --non-interactive    禁止交互；需要审批/提问时退出码 4
       --json               stdout 输出 NDJSON 事件
       --log-level string   error|warn|info|debug
+  -v, --verbose            实时展示节点/请求/响应/工具结果详情
+      --no-verbose         关闭详细输出（覆盖 settings.ui.verbose）
+  -o, --output string      export 输出路径；- 表示 stdout
+      --format string      export 格式：html|md
       --no-color           关闭颜色
   -h, --help               帮助
       --version            版本
@@ -245,6 +250,7 @@ Exit codes:
 | v1.2 | 2026-10-30 | 新增 19 号文档 [§21 模块接口与串联](19-interfaces.md#21-模块接口与串联实现契约)：各模块内部接口、组合根装配、七条调用链；补 D43 |
 | v1.3 | 2026-10-30 | 落地抽象层与组合根（`internal/`、`cmd/ant`）；补 D44（agent/tool Deps 注入字段）；修正 CI；README 增加实现进度 |
 | v1.4 | 2026-11-07 | 终端渲染升级：TTY 下 Glamour Markdown（按完整块流式）+ 思考/工具/结果彩色块，非 TTY/`--no-color` 回退纯文本；补 D46；新增 Glamour 依赖 |
+| v1.5 | 2026-11-08 | 调试可见性：`--verbose`/`ui.verbose` 实时展示节点/请求/响应/工具结果；新增 `ant export`（HTML/Markdown）；事件增加 `run` 与 `tool_result.name`；只读查看不写 meta；补 D47 |
 
 ---
 

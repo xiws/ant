@@ -122,6 +122,7 @@ $ANT_HOME/                      # 默认 ~/.ant，可用环境变量覆盖
 | 日志 | `log.format` | `text` | `text`\|`json` |
 | 日志 | `log.file` | `""` | 空则写 `.ant/logs/ant-YYYYMMDD.log` |
 | UI | `ui.color` | `auto` | `auto`\|`always`\|`never` |
+| UI | `ui.verbose` | `false` | 等价 `--verbose`：实时展示节点/请求/响应/工具结果详情 |
 | 审批 | `approval.policy` | `risk-based` | `risk-based`\|`always`\|`never` |
 | 审批 | `approval.allow` | `[]` | 额外放行的命令/路径 glob |
 | 审批 | `approval.deny` | `[]` | 额外拒绝的 glob，优先于 allow |

@@ -11,9 +11,9 @@ import (
 
 // options 是解析后的命令行。
 type options struct {
-	command string // "" | new | sessions | show | init | models | config | version | help
+	command string // "" | new | sessions | show | export | init | models | config | version | help
 	prompt  string
-	rest    []string // show 的 id、help 的子命令
+	rest    []string // show/export 的 id、help 的子命令
 
 	model          string
 	mode           model.Mode
@@ -29,6 +29,10 @@ type options struct {
 	showVersion    bool
 	force          bool
 	showEvents     bool
+	verbose        bool
+	verboseSet     bool
+	output         string
+	format         string
 
 	limit        int
 	filterMode   model.Mode
@@ -36,7 +40,7 @@ type options struct {
 }
 
 var commandNames = map[string]bool{
-	"new": true, "sessions": true, "show": true, "init": true,
+	"new": true, "sessions": true, "show": true, "export": true, "init": true,
 	"models": true, "config": true, "version": true, "help": true,
 }
 
@@ -58,7 +62,7 @@ func parseArgs(args []string) (options, error) {
 			break
 		}
 		if arg == "" || arg[0] != '-' || arg == "-" {
-			if opts.command == "show" || opts.command == "help" {
+			if opts.command == "show" || opts.command == "help" || opts.command == "export" {
 				opts.rest = append(opts.rest, arg)
 			} else {
 				promptParts = append(promptParts, arg)
@@ -141,6 +145,24 @@ func parseArgs(args []string) (options, error) {
 			opts.force = true
 		case "--events":
 			opts.showEvents = true
+		case "-v", "--verbose":
+			opts.verbose = true
+			opts.verboseSet = true
+		case "--no-verbose":
+			opts.verbose = false
+			opts.verboseSet = true
+		case "-o", "--output":
+			v, err := value()
+			if err != nil {
+				return opts, err
+			}
+			opts.output = v
+		case "--format":
+			v, err := value()
+			if err != nil {
+				return opts, err
+			}
+			opts.format = strings.ToLower(strings.TrimSpace(v))
 		case "--limit":
 			v, err := value()
 			if err != nil {
@@ -179,6 +201,9 @@ func parseArgs(args []string) (options, error) {
 	if len(opts.rest) > 1 {
 		opts.rest = opts.rest[:1]
 	}
+	if opts.command != "export" && (opts.output != "" || opts.format != "") {
+		return opts, usageErrorf("-o/--output 与 --format 只能用于 ant export")
+	}
 	return opts, nil
 }
 
@@ -210,6 +235,7 @@ Usage:
   ant new [flags] [prompt...]
   ant sessions [flags]
   ant show <session-id>
+  ant export [session-id] [--format html|md] [-o path|-] [--events]
   ant init [--force]
   ant models
   ant config
@@ -232,6 +258,10 @@ Flags:
       --non-interactive    禁止交互；需要审批/提问时退出码 4
       --json               stdout 输出 NDJSON 事件
       --log-level string   error|warn|info|debug
+  -v, --verbose            实时展示节点/请求/响应/工具结果详情
+      --no-verbose         关闭详细输出（覆盖 settings.ui.verbose）
+  -o, --output string      export 输出路径；- 表示 stdout
+      --format string      export 格式：html|md
       --no-color           关闭颜色
   -h, --help               帮助
       --version            版本
@@ -241,6 +271,8 @@ Exit codes:
 `
 
 const commandHelp = `ant show <session-id> [--events]   查看 session 摘要/事件
+ant export [session-id] [--format html|md] [-o path|-] [--events]
+                                   导出完整链路（prompt/请求/响应/工具结果）
 ant sessions [--limit N] [--mode M] [--status S] [--json]
 ant init [--force]               生成/刷新 .ant/project.md
 ant models                       列出模型别名与能力

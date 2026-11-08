@@ -196,3 +196,29 @@ func TestLoaderStrictJSONAndSize(t *testing.T) {
 		t.Fatal("trailing comma should fail")
 	}
 }
+
+func TestVerboseSettingAndCLIOverride(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	writeFile(t, filepath.Join(dir, ".ant", "settings.json"), `{"ui":{"verbose":true}}`)
+	cfg, err := load(t, dir, home, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Settings().UI.Verbose {
+		t.Fatal("ui.verbose should be true from workspace settings")
+	}
+	if o, ok := cfg.Origin("ui.verbose"); !ok || o != OriginWorkspace {
+		t.Fatalf("origin = %v/%v", o, ok)
+	}
+	cfg, err = load(t, dir, home, Overrides{Verbose: false, VerboseSet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Settings().UI.Verbose {
+		t.Fatal("--no-verbose should override settings")
+	}
+	if o, ok := cfg.Origin("ui.verbose"); !ok || o != OriginCLI {
+		t.Fatalf("origin = %v/%v", o, ok)
+	}
+}

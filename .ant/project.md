@@ -13,7 +13,7 @@ ant 需求与设计规格
 
 - 项目类型：Go
 - 模块 / 包名：`github.com/xiws/ant`
-- 主要依赖：未从清单文件中解析到依赖
+- 主要依赖：`github.com/charmbracelet/glamour`、`golang.org/x/term`、`github.com/alecthomas/chroma/v2`、`github.com/aymanbagabas/go-osc52/v2`、`github.com/aymerick/douceur`、`github.com/charmbracelet/colorprofile`、`github.com/charmbracelet/lipgloss`、`github.com/charmbracelet/x/ansi`、`github.com/charmbracelet/x/cellbuf`、`github.com/charmbracelet/x/exp/slice` 等（另有 10 个未列出）
 - 语言 / 运行时版本：未解析（以仓库内清单与 CI 配置为准）
 
 ## 目录结构
@@ -47,6 +47,7 @@ docs/17-adr.md
 docs/18-appendix.md
 docs/19-interfaces.md
 go.mod
+go.sum
 internal/
 internal/agent/
 internal/agent/agent.go
@@ -64,12 +65,21 @@ internal/cli/app.go
 internal/cli/app_test.go
 internal/cli/args.go
 internal/cli/args_test.go
+internal/cli/block.go
 internal/cli/cli.go
+internal/cli/export.go
+internal/cli/export_test.go
+internal/cli/markdown.go
+internal/cli/markdown_test.go
 internal/cli/prompter.go
 internal/cli/render.go
+internal/cli/render_integration_test.go
 internal/cli/render_test.go
 internal/cli/resume_test.go
 internal/cli/subcommands.go
+internal/cli/trace_render.go
+internal/cli/trace_render_test.go
+internal/cli/verbose_test.go
 internal/config/
 internal/config/config.go
 internal/config/defaults.go
@@ -129,17 +139,7 @@ internal/provider/provider.go
 internal/provider/provider_test.go
 internal/provider/registry.go
 internal/provider/retry.go
-internal/provider/router.go
-internal/readcode/
-internal/readcode/index.go
-internal/readcode/index_test.go
-internal/readcode/readcode.go
-internal/session/
-internal/session/done_test.go
-internal/session/fsutil.go
-internal/session/lock.go
-internal/session/recover.go
-...（已省略 36 项）
+...（已省略 53 项）
 ```
 
 ## 入口
@@ -169,7 +169,6 @@ internal/session/recover.go
 
 - 本小节来自确定性骨架，未做语义推断；实际坑位需人工或模型摘要补充。
 - 构建 / 测试 / Lint 命令可能与仓库实际约定不同，请以 CI 配置为准。
-- 未解析到依赖清单，技术栈信息可能不完整。
 - 目录树只展示前 120 项，完整结构请在仓库中查看。
 
 ## 验收规则

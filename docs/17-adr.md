@@ -50,6 +50,7 @@
 | D44 | 抽象层落地时增加字段级注入面：`agent.Deps`（Config/Project/OnDelta/OnText）、`tool.Deps`（Prompter/Index）、`TurnInput/ResumeState.Summary`、`EnsureOptions.Explicit`、`config.Paths` | 让 baseNode/工具不反向 import 上层或终端；保持接口与依赖方向不变 | 让节点直接 import cli/statemachine（循环依赖）；把 Renderer/Prompter 塞进 model（词汇表污染） |
 | D45 | 终端可读性优先：reasoning 合并为 `[思考]` 块、流式文本结束补换行（`Renderer.EndMessage`）、info 日志只记关键事件（data 仅 debug）、工具参数摘要、摘要含耗时 | 逐 chunk 的 `[reasoning]` 与 JSON 事件会淹没模型正文，小终端尤其难读 | 引入 TUI（复杂度过高）；把日志转到文件后默认静默（排障不便） |
 | D46 | TTY 下用 Glamour 渲染 Markdown，过程信息（思考/工具/结果/提示）用紫/蓝/绿/红/灰左色块区分，不使用闪烁 SGR；按完整 Markdown 块流式渲染，非 TTY/`NO_COLOR`/`--no-color` 回退纯文本 | 结果与过程混排时长过程会淹没答案；Glamour 提供代码高亮/表格/标题，块级渲染兼顾流式且避免半截围栏被渲染坏 | 整段缓冲后再渲染（丢失流式）；自研 Markdown 渲染器（重复造轮子）；全屏 TUI（依赖与复杂度高） |
+| D47 | 调试可见性分两层：`--verbose` 实时按需展示节点/请求/响应/工具结果预览；`ant export` 离线导出完整链路（HTML/Markdown）。事件增加 `run` 关联字段与 `tool_result.name`，只读查看使用 `OpenOptions.ReadOnly` 不写 meta | 默认输出保持简洁；完整 prompt/响应/工具输出一次性导出，避免把终端刷屏作为唯一排障手段；`run` 解决 fanout 归组 | 默认打印完整 prompt/工具输出（噪音与泄露风险）；只做 HTML 不做实时（调试反馈慢）；抓取 provider HTTP 原文（协议差异大、体积大） |
 
 ---
 

@@ -29,7 +29,7 @@ type ToolSpec struct {
 7. 审批（如需要，[§12.3](10-security.md#123-审批分级)）。
 8. 在超时与取消上下文中执行。
 9. 截断/清理输出，必要时写 artifact（[§10.3](#103-输出截断与-artifact)）。
-10. 写 `tool_call`/`tool_result` 事件。
+10. 写 `tool_call`/`tool_result` 事件；`tool_result` 同时带 `name`，便于终端与导出标注工具。
 11. 返回一条 `role:"tool"` 消息，`tool_call_id` 与请求一致。
 
 **返回格式**（tool message 的 `content` 是 JSON 字符串；`data` 的结构由各工具定义）：

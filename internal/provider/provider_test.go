@@ -234,7 +234,7 @@ func TestClientRetriesAndEmits(t *testing.T) {
 	retrier := NewRetrierWithSleep(config.RetrySettings{Attempts: 3, BaseDelayMs: 1, MaxDelayMs: 2}, func(ctx context.Context, d time.Duration) error { return nil })
 	client := NewClient(flaky, retrier, nil, sink)
 	client.Bind(Resolved{Alias: "alpha", ModelID: "real-alpha", Capabilities: model.Capabilities{ContextWindow: 1000}}, nil)
-	resp, err := client.Chat(context.Background(), ChatRequest{Model: "alpha", Messages: []model.Message{{Role: model.RoleUser, Content: "hi"}}}, nil)
+	resp, err := client.Chat(model.WithRun(context.Background(), "run-p"), ChatRequest{Model: "alpha", Messages: []model.Message{{Role: model.RoleUser, Content: "hi"}}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,6 +243,9 @@ func TestClientRetriesAndEmits(t *testing.T) {
 	}
 	var types []model.EventType
 	for _, ev := range events {
+		if ev.Run != "run-p" {
+			t.Fatalf("event %s run=%q", ev.Type, ev.Run)
+		}
 		types = append(types, ev.Type)
 	}
 	joined := eventTypes(types)

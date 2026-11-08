@@ -134,6 +134,7 @@ flowchart TD
 | `projectctx` | `Scanner` / `Hasher` / `Generator` | 扫描、hash、模型摘要 | `projectctx.*` | `projectctx.Builder` |
 | `logx` | `Logger` | 分级日志与打码 | `logx.logger` | 几乎所有模块 |
 | `logx` | `Sink` | 事件扇出（文件/NDJSON/日志） | `logx.*` | `cli` 组装 |
+| `trace` | `Build` / `Document` | 从 session 事件与 artifact 重建链路，渲染 HTML/Markdown | `trace.Build` | `cli.runExport` |
 | `cli` | `Renderer` | Markdown/纯文本/NDJSON/turn 摘要渲染 | `cli.renderText`、`cli.renderJSON` | `App` |
 
 > “生产实现”一列是**命名建议**（`包名.类型`），不是路径承诺；具体文件划分以 [§16.1](14-engineering.md#161-建议包结构) 为准。
@@ -409,6 +410,7 @@ type Event struct {
 	Turn int             `json:"turn,omitempty"`
 	Step string          `json:"step,omitempty"`
 	Node NodeName        `json:"node,omitempty"`
+	Run  string          `json:"run,omitempty"` // 节点运行实例 ID；并发 fanout 精确归组
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
@@ -788,6 +790,7 @@ type OpenOptions struct {
 	Model     string
 	Workspace string
 	Lock      bool // 新建/续默认加锁
+	ReadOnly  bool // 只读查看/导出：不取锁、不创建目录、不写 meta
 }
 
 type Session interface {
@@ -1647,7 +1650,18 @@ type Renderer interface {
 	EndMessage() // 一段流式输出结束（补齐换行并 flush Markdown）
 	TurnSummary(r statemachine.TurnResult, u logx.UsageAggregator)
 }
+
+// traceRenderer 是 Renderer 的可选扩展（--verbose / ui.verbose）。
+// 只有 textRenderer 实现；jsonRenderer 不实现，因此 --json 下自动跳过。
+type traceRenderer interface {
+	NodeStart(NodeStartInfo)
+	ModelRequest(ModelRequestInfo)
+	ModelResponse(ModelResponseInfo)
+	ToolOutput(ToolOutputInfo)
+}
 ```
+
+**离线导出**：`internal/trace` 只依赖 `session.Reader` 与 `model`，不 import `cli`。`ant export` 用只读方式打开 session，把 `events.jsonl` + `artifacts/` 重建为 `trace.Document`，再渲染为单文件 HTML/Markdown。`--verbose` 的实时详情与 `ant export` 的完整报告共用同一份事件与 artifact，不额外抓取 provider HTTP 原文。
 
 **构造函数约定**：统一为 `New<Interface>`，返回接口而不是具体类型；除 `*config.Config`、`*provider.Router`、`*provider.Client`、`*cli.App` 外不导出具体实现，避免调用方绕过接口。
 
@@ -2134,7 +2148,7 @@ flowchart TD
 | 新节点 | 实现 `agent.Node`（通常内嵌 `baseNode`）+ 在 `Graph` 引用 | 5 个节点；新增须同步模式图与输出契约 |
 | 新事件类型 | `model.EventType` + `session` 忽略未知类型并 warning | 字段只增不改（[§9.9](07-session.md#99-schema-版本与迁移)） |
 | 外部 UI / CI | 实现 `model.EventSink` 挂到 `logx.Multi` | `--json` 已提供 |
-| 快照加速恢复 | 在 `Recoverer` 实现内优先读 `snapshot.json` 再折叠增量（接口不变） | 不在 v1（[§9.10](07-session.md#910-v1-不做快照)） |
+| 快照加速恢复 | 在 `Recoverer` 实现内优先读 `snapshot.json` 再折叠增量（接口不变） | 不在 v1（[§9.11](07-session.md#911-v1-不做快照)） |
 | 存储后端替换 | 实现 `session.Store`/`Session` | v1 仅文件系统 |
 
 **兼容规则**：

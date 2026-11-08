@@ -33,6 +33,9 @@ type OpenOptions struct {
 	Model     string
 	Workspace string
 	Lock      bool
+	// ReadOnly 只读打开：不取锁、不创建目录、不写 meta。
+	// 用于 `show --events`、`export` 等查看路径，避免覆盖运行中 session 的 meta。
+	ReadOnly bool
 }
 
 // Session 是 Recorder + Reader + Meta + Close。

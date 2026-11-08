@@ -183,6 +183,20 @@ func TestBaseNodeToolLoop(t *testing.T) {
 			t.Fatalf("missing %s in %s", want, joined)
 		}
 	}
+	runID := ""
+	for _, ev := range events {
+		if ev.Run == "" {
+			t.Fatalf("event %s missing run id", ev.Type)
+		}
+		if runID == "" {
+			runID = ev.Run
+		} else if ev.Run != runID {
+			t.Fatalf("event %s run=%q want %q", ev.Type, ev.Run, runID)
+		}
+	}
+	if runID == "" {
+		t.Fatal("no run id emitted")
+	}
 }
 
 func TestContracts(t *testing.T) {

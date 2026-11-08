@@ -198,12 +198,15 @@ func New(ctx context.Context, args []string, stdio Stdio, ov Overrides) (*App, e
 	// 日志：stderr + .ant/logs（§15.1）。
 	app.log = app.newLogger(cfg.Settings().Log)
 	app.render = app.pickRenderer()
+	if opts.jsonOut && opts.verboseSet && opts.verbose {
+		app.render.Notice("--json 模式下忽略 --verbose（stdout 保持 NDJSON）")
+	}
 	if opts.yes {
 		app.render.Notice("--yes 已启用：除硬拒绝外自动批准（危险，仅建议受控环境）")
 	}
 
 	switch opts.command {
-	case "models", "config", "sessions", "show":
+	case "models", "config", "sessions", "show", "export":
 		app.store = session.NewStore(app.workDir())
 		return app, nil
 	case "init":
@@ -241,6 +244,8 @@ func loadConfig(ctx context.Context, stdio Stdio, ov Overrides, opts options) (c
 			NonInteractive: opts.nonInteractive,
 			LogLevel:       opts.logLevel,
 			NoColor:        opts.noColor,
+			Verbose:        opts.verbose,
+			VerboseSet:     opts.verboseSet,
 			NodeModels:     opts.nodeModels,
 		},
 	})
@@ -263,6 +268,15 @@ func (a *App) workDir() string {
 	return "."
 }
 
+// verbose 报告是否启用人类可读的详细链路输出。
+// --json 模式承诺 stdout 只有 NDJSON，因此强制关闭。
+func (a *App) verbose() bool {
+	if a == nil || a.cfg == nil || a.opts.jsonOut {
+		return false
+	}
+	return a.cfg.Settings().UI.Verbose
+}
+
 func (a *App) pickRenderer() Renderer {
 	if a.opts.jsonOut {
 		return &jsonRenderer{err: a.stdio.Err}
@@ -274,6 +288,7 @@ func (a *App) pickRenderer() Renderer {
 	settings := a.cfg.Settings()
 	r.mode = settings.DefaultMode
 	r.modelAlias = initialAlias(a.cfg, a.opts)
+	r.verbose = a.verbose()
 	if !colorEnabled(settings.UI.Color, a.stdio.IsTTY, a.stdio.Env) {
 		return r
 	}
@@ -286,6 +301,7 @@ func (a *App) pickRenderer() Renderer {
 	}
 	rich.mode = r.mode
 	rich.modelAlias = r.modelAlias
+	rich.verbose = r.verbose
 	return rich
 }
 
@@ -382,7 +398,7 @@ func (a *App) openAndWire(ctx context.Context) error {
 	if a.opts.jsonOut {
 		sinks = append(sinks, logx.NewNDJSON(a.stdio.Out))
 	}
-	sinks = append(sinks, renderSink(a.render))
+	sinks = append(sinks, renderSink(a.render, sess, a.verbose()))
 	sinks = append(sinks, logx.NewLoggerSink(a.log, a.cfg.Settings().Log.Level))
 	if a.tracker != nil {
 		sinks = append(sinks, usageSink(a.tracker))
@@ -617,6 +633,8 @@ func (a *App) Run(ctx context.Context) int {
 		return a.runSessions(ctx)
 	case "show":
 		return a.runShow(ctx)
+	case "export":
+		return a.runExport(ctx)
 	case "init":
 		return a.runInit(ctx)
 	}

@@ -58,9 +58,19 @@
 
 ## 15.5 调试
 
-- `--log-level debug`：打印请求摘要（消息数、token 估算、工具列表、prompt hash）、工具参数、重试原因。
-- `ant show <id> --events`：查看事件流；大字段显示 artifact 路径。
-- 不默认打印完整 prompt/消息，避免泄露代码与密钥；调试时按需从 artifact 读取。
+三种手段分工：
+
+| 手段 | 用途 | 输出 |
+| --- | --- | --- |
+| `--log-level debug` | 模块级排障、重试/降级原因 | stderr + `.ant/logs/`，事件摘要与打码后的 data |
+| `--verbose` / `settings.ui.verbose` | 实时看 agent 链路 | stdout：节点 prompt 版本/hash/input artifact、每轮请求/响应摘要、工具完整参数、工具结果预览与完整 artifact 路径 |
+| `ant export <id>` | 事后完整复盘/分享 | 单文件 HTML 或 Markdown：有效 prompt、请求消息、响应、工具调用/结果、节点输出、usage、压缩/审批记录 |
+
+- `ant show <id> --events`：查看原始事件流；大字段显示 artifact 路径。
+- `ant export` 默认写到 `<session>/trace.html`；`--format md -o -` 可输出 Markdown 到 stdout。
+- 实时 verbose 的预览有上限（参数约 2 KiB、结果约 4 KiB）；完整内容以 artifact 与导出文件为准。
+- `--json` 下忽略 `--verbose`，stdout 保持纯 NDJSON。
+- 不默认打印完整 prompt/消息，避免泄露代码与密钥；verbose/export 是显式 opt-in，导出文件权限 0600。
 - 每个错误都带 session id 与日志路径，便于用户反馈。
 
 > **设计理由**：agent 的行为是非确定性的，“事后能查”比“代码优雅”更重要。日志与事件分工：事件是恢复/审计的事实来源，日志是排障视图；二者都不应把密钥写进去。

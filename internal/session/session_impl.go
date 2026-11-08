@@ -25,6 +25,7 @@ type fsSession struct {
 	events      *os.File
 	lease       Lease
 	closed      bool
+	readOnly    bool
 
 	warnings []string
 	warnSeen map[string]struct{}
@@ -46,6 +47,9 @@ func (s *fsSession) UpdateMeta(ctx context.Context, mutate func(*Meta) error) er
 	defer s.mu.Unlock()
 	if s.closed {
 		return sessionClosedError(s.id)
+	}
+	if s.readOnly {
+		return sessionReadOnlyError(s.id)
 	}
 	meta := cloneMeta(s.meta)
 	if mutate != nil {
@@ -82,6 +86,9 @@ func (s *fsSession) Emit(ctx context.Context, ev *model.Event) error {
 	defer s.mu.Unlock()
 	if s.closed {
 		return sessionClosedError(s.id)
+	}
+	if s.readOnly {
+		return sessionReadOnlyError(s.id)
 	}
 
 	seq := s.lastSeq + 1
@@ -291,13 +298,15 @@ func (s *fsSession) Close() error {
 	s.mu.Unlock()
 
 	var firstErr error
-	if err := writeMetaFile(s.dir, meta); err != nil {
-		firstErr = sessionErr(model.ErrInternal, "session_meta_write_failed",
-			"关闭时无法写入 meta.json", "检查 session 目录写权限", err)
-	} else {
-		s.mu.Lock()
-		s.meta = meta
-		s.mu.Unlock()
+	if !s.readOnly {
+		if err := writeMetaFile(s.dir, meta); err != nil {
+			firstErr = sessionErr(model.ErrInternal, "session_meta_write_failed",
+				"关闭时无法写入 meta.json", "检查 session 目录写权限", err)
+		} else {
+			s.mu.Lock()
+			s.meta = meta
+			s.mu.Unlock()
+		}
 	}
 	if file != nil {
 		_ = file.Sync()
@@ -348,6 +357,15 @@ func sessionClosedError(id string) *model.Error {
 		Code:    "session_closed",
 		Message: fmt.Sprintf("session %s 已关闭", id),
 		Hint:    "关闭后的 session 不可再写入事件或 artifact",
+	}
+}
+
+func sessionReadOnlyError(id string) *model.Error {
+	return &model.Error{
+		Class:   model.ErrInternal,
+		Code:    "session_read_only",
+		Message: fmt.Sprintf("session %s 以只读方式打开", id),
+		Hint:    "只读 session 不可写事件或 meta；查看/导出请勿写入",
 	}
 }
 

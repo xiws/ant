@@ -55,9 +55,15 @@ func (s *store) Open(ctx context.Context, opts OpenOptions) (Session, Opened, er
 	if err := ctx.Err(); err != nil {
 		return nil, Opened{}, contextErr(ctx)
 	}
-	if err := secureMkdirAll(s.root); err != nil {
-		return nil, Opened{}, sessionErr(model.ErrInternal, "session_root_failed",
-			"无法创建 sessions 目录", "检查 workspace 写权限", err)
+	if opts.ReadOnly && (opts.Create || opts.Lock) {
+		return nil, Opened{}, sessionErr(model.ErrConfigInvalid, "session_read_only",
+			"只读打开不能同时 Create 或 Lock", "查看/导出请使用 ReadOnly=true 且不取锁", nil)
+	}
+	if !opts.ReadOnly {
+		if err := secureMkdirAll(s.root); err != nil {
+			return nil, Opened{}, sessionErr(model.ErrInternal, "session_root_failed",
+				"无法创建 sessions 目录", "检查 workspace 写权限", err)
+		}
 	}
 
 	id := strings.TrimSpace(opts.ID)
@@ -85,13 +91,15 @@ func (s *store) Open(ctx context.Context, opts OpenOptions) (Session, Opened, er
 		}
 	}
 
-	artifactsDir := filepath.Join(dir, "artifacts")
-	if err := secureMkdirAll(artifactsDir); err != nil {
-		if created {
-			_ = os.RemoveAll(dir)
+	if !opts.ReadOnly {
+		artifactsDir := filepath.Join(dir, "artifacts")
+		if err := secureMkdirAll(artifactsDir); err != nil {
+			if created {
+				_ = os.RemoveAll(dir)
+			}
+			return nil, Opened{}, sessionErr(model.ErrInternal, "session_artifacts_dir_failed",
+				"无法创建 artifacts 目录", "检查 session 目录写权限", err)
 		}
-		return nil, Opened{}, sessionErr(model.ErrInternal, "session_artifacts_dir_failed",
-			"无法创建 artifacts 目录", "检查 session 目录写权限", err)
 	}
 
 	var lease Lease
@@ -142,6 +150,7 @@ func (s *store) Open(ctx context.Context, opts OpenOptions) (Session, Opened, er
 		lastSeq:     lastSeq,
 		currentTurn: meta.TurnCount,
 		lease:       lease,
+		readOnly:    opts.ReadOnly,
 		warnings:    warns,
 	}
 	// lock 接管等 warning 通过 Lease 的扩展方法传给恢复层。
@@ -248,6 +257,10 @@ func (s *store) loadOrCreateMeta(dir, id string, opts OpenOptions, created bool)
 			fmt.Sprintf("meta.json 的 id=%q 与目录名 %q 不一致", meta.ID, id),
 			"确认 session 未被手工移动或修改", nil)
 	}
+	if opts.ReadOnly && !exists {
+		return Meta{}, false, sessionErr(model.ErrConfigInvalid, "session_meta_missing",
+			fmt.Sprintf("session %s 缺少 meta.json", id), "session 可能未完整创建；请运行 ant sessions 检查", nil)
+	}
 
 	now := s.clock().UTC()
 	needWrite := !exists
@@ -297,7 +310,9 @@ func (s *store) loadOrCreateMeta(dir, id string, opts OpenOptions, created bool)
 		needWrite = true
 	}
 	if needWrite || created {
-		if err := writeMetaFile(dir, meta); err != nil {
+		if opts.ReadOnly {
+			// 只读打开不改写 meta；缺失字段只在内存中补齐。
+		} else if err := writeMetaFile(dir, meta); err != nil {
 			return Meta{}, false, sessionErr(model.ErrInternal, "session_meta_write_failed",
 				"无法写入 meta.json", "检查 session 目录写权限", err)
 		}

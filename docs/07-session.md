@@ -72,6 +72,7 @@
 | `turn` | int | 所属 turn，1 开始 |
 | `step` | string | 可选，如 `code`、`plan.round-1.verifier` |
 | `node` | string | 可选，节点名 |
+| `run` | string | 可选，节点运行实例 ID；同一 node 的并发 fanout/多轮事件靠它精确归组 |
 | `data` | object | 类型相关 |
 
 **事件类型**：
@@ -87,7 +88,7 @@
 | `model_fallback` | `from, to, reason, attempt` |
 | `message` | `role, contentHash, contentRef`（完整内容在 artifact） |
 | `tool_call` | `id, name, arguments, approval` |
-| `tool_result` | `id, status, exitCode, durationMs, outputRef, truncated, error` |
+| `tool_result` | `id, name, status, exitCode, durationMs, outputRef, truncated, error` |
 | `approval_requested` | `class, command/path, reason` |
 | `approval_resolved` | `class, decision, scope` |
 | `context_compacted` | `beforeTokens, afterTokens, summaryRef, replacedRange` |
@@ -105,7 +106,7 @@
 {"seq":2,"ts":"2026-10-30T09:47:05.001Z","type":"turn_started","turn":1,"data":{"input":"给 Test 增加边界检查","inputHash":"sha256:..."}}
 {"seq":3,"ts":"2026-10-30T09:47:05.010Z","type":"node_started","turn":1,"step":"code","node":"code","data":{"model":"deepseek-v4-flash","promptVersion":"1","promptHash":"sha256:...","inputRef":"artifacts/0003-code-input.json"}}
 {"seq":4,"ts":"2026-10-30T09:47:08.200Z","type":"tool_call","turn":1,"step":"code","node":"code","data":{"id":"call_1","name":"read","arguments":{"path":"pkg/test.go"},"approval":"auto"}}
-{"seq":5,"ts":"2026-10-30T09:47:08.215Z","type":"tool_result","turn":1,"step":"code","node":"code","data":{"id":"call_1","status":"ok","exitCode":0,"durationMs":15,"outputRef":"artifacts/0005-tool-call_1.out","truncated":false}}
+{"seq":5,"ts":"2026-10-30T09:47:08.215Z","type":"tool_result","turn":1,"step":"code","node":"code","data":{"id":"call_1","name":"read","status":"ok","exitCode":0,"durationMs":15,"outputRef":"artifacts/0005-tool-call_1.out","truncated":false}}
 {"seq":6,"ts":"2026-10-30T09:47:12.900Z","type":"usage","turn":1,"node":"code","data":{"input":1234,"output":567,"cached":0,"reasoning":0,"estimated":false}}
 ```
 
@@ -179,7 +180,18 @@
 - 不做原地改写；未来版本通过新字段/新事件类型迁移，旧版本只读。
 - 事件字段只增不改语义；破坏性变更提升 `schemaVersion` 并在启动时提示。
 
-## 9.10 v1 不做快照
+## 9.10 只读查看与离线导出
+
+- `ant show --events` 与 `ant export` 以只读方式打开 session：不取锁、不创建目录、不写 `meta.json`。因此查看/导出运行中的 session 不会覆盖其状态。
+- `ant export` 把 `events.jsonl` 与 `artifacts/` 重建为完整链路：
+  - 每个 node 的有效 prompt（node-input 原文）、工具定义；
+  - 每轮请求摘要与消息（首轮原文，后续按 baseNode 规则重建并标注）；
+  - 模型响应、工具调用参数/结果/完整输出、节点输出、usage、压缩摘要；
+  - 可选 `--events` 附原始事件。
+- 导出默认写到 `<session>/trace.html`，也可 `--format md` 或 `-o -` 输出到 stdout。
+- 旧 session 没有 `run` 字段时按 `turn + node + step + dimension` 回退归组；并发分支可能不精确，报告会给出 warning。
+
+## 9.11 v1 不做快照
 
 - 恢复时折叠全部事件，复杂度 O(n)；预期单 session < 1 万事件，耗时可接受。
 - 后续如需要，可增加 `snapshot.json`（记录 `lastSeq` + 折叠结果），事件契约不变。

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,6 +32,7 @@ type textRenderer struct {
 	mode        model.Mode
 	modelAlias  string
 	sessionPath string
+	verbose     bool
 	lineStart   bool // stdout 是否位于行首
 	thinking    bool // 正在输出思考块
 	thinkEOL    bool // 思考块（stderr）是否位于行首
@@ -172,10 +174,15 @@ func (r *textRenderer) ToolCall(name string, args []byte) {
 			limit = 24
 		}
 		line := fmt.Sprintf("%s %s %s", colorBar(colorToolBar), colorChip("工具", colorToolChip, colorOnChip), paint(label, "1", "38;5;252"))
-		if arg := summarizeToolArgs(args); arg != "" {
-			line += " " + paint(truncateRunes(arg, limit), "38;5;"+strconv.Itoa(colorMuted))
+		if !r.verbose {
+			if arg := summarizeToolArgs(args); arg != "" {
+				line += " " + paint(truncateRunes(arg, limit), "38;5;"+strconv.Itoa(colorMuted))
+			}
 		}
 		fmt.Fprintln(r.out, line)
+		if r.verbose {
+			r.writeToolArgs(args)
+		}
 		r.outKind = blockTool
 		r.outAny = true
 		r.lineStart = true
@@ -184,7 +191,12 @@ func (r *textRenderer) ToolCall(name string, args []byte) {
 	if !r.lineStart {
 		fmt.Fprintln(r.out)
 	}
-	fmt.Fprintf(r.out, "[tool] %s %s\n", name, summarizeToolArgs(args))
+	if r.verbose {
+		fmt.Fprintf(r.out, "[tool] %s\n", name)
+		r.writeToolArgs(args)
+	} else {
+		fmt.Fprintf(r.out, "[tool] %s %s\n", name, summarizeToolArgs(args))
+	}
 	r.lineStart = true
 }
 
@@ -216,7 +228,11 @@ func (r *textRenderer) ToolResult(name string, ok bool, dur time.Duration) {
 	if !r.lineStart {
 		fmt.Fprintln(r.out)
 	}
-	fmt.Fprintf(r.out, "[tool] %s %s (%s)\n", name, status, formatDuration(dur))
+	if d := formatDuration(dur); d != "" {
+		fmt.Fprintf(r.out, "[tool] %s %s (%s)\n", name, status, d)
+	} else {
+		fmt.Fprintf(r.out, "[tool] %s %s\n", name, status)
+	}
 	r.lineStart = true
 }
 
@@ -302,6 +318,9 @@ func (r *textRenderer) TurnSummary(res statemachine.TurnResult, u logx.UsageAggr
 	if r.sessionPath != "" {
 		fmt.Fprintf(r.out, "      session：%s\n", r.sessionPath)
 	}
+	if r.verbose && r.sessionPath != "" {
+		fmt.Fprintf(r.out, "      链路：ant export %s\n", filepath.Base(r.sessionPath))
+	}
 	r.outKind = blockAnswer
 }
 
@@ -316,8 +335,50 @@ func (r *jsonRenderer) Notice(msg string)                                       
 func (r *jsonRenderer) EndMessage()                                               {}
 func (r *jsonRenderer) TurnSummary(statemachine.TurnResult, logx.UsageAggregator) {}
 
-// renderSink 把工具事件映射到 Renderer，保证工具轨迹可见而不改事件契约。
-func renderSink(r Renderer) model.EventSink {
+// artifactReader 是 renderSink 读取 trace artifact 的最小接口。
+type artifactReader interface {
+	Artifact(model.ArtifactRef) ([]byte, error)
+}
+
+// renderSink 把事件映射到 Renderer，保证工具轨迹可见而不改事件契约。
+// verbose 时额外读取 node-input / message artifact，展示 prompt 摘要与工具结果。
+func renderSink(r Renderer, art artifactReader, verbose bool) model.EventSink {
+	tr, _ := r.(traceRenderer)
+	var mu sync.Mutex
+	toolNames := map[string]string{}
+	rounds := map[string]int{}
+	notified := map[string]bool{}
+
+	failNotice := func(name string, err error) {
+		if err == nil {
+			return
+		}
+		mu.Lock()
+		seen := notified[name]
+		notified[name] = true
+		mu.Unlock()
+		if !seen {
+			r.Notice("无法读取 trace artifact " + name + "：" + err.Error())
+		}
+	}
+	readRef := func(name string, ref model.ArtifactRef) []byte {
+		if art == nil || ref.IsZero() {
+			return nil
+		}
+		body, err := art.Artifact(ref)
+		if err != nil {
+			failNotice(name, err)
+			return nil
+		}
+		return body
+	}
+	roundKey := func(ev *model.Event) string {
+		if ev.Run != "" {
+			return ev.Run
+		}
+		return string(ev.Node)
+	}
+
 	return model.EventSinkFunc(func(ctx context.Context, ev *model.Event) error {
 		if ev == nil || r == nil {
 			return nil
@@ -326,35 +387,215 @@ func renderSink(r Renderer) model.EventSink {
 		case model.EventModelResponse, model.EventNodeCompleted, model.EventTurnCompleted:
 			// 文本流结束：先补换行，避免后续日志/摘要粘在最后一行。
 			r.EndMessage()
+		}
+
+		switch ev.Type {
+		case model.EventNodeStarted:
+			if !verbose || tr == nil {
+				return nil
+			}
+			var d struct {
+				Node          model.NodeName  `json:"node"`
+				Model         string          `json:"model"`
+				Provider      string          `json:"provider"`
+				PromptVersion string          `json:"promptVersion"`
+				PromptHash    string          `json:"promptHash"`
+				StableHash    string          `json:"stableHash"`
+				ToolsHash     string          `json:"toolsHash"`
+				InputRef      json.RawMessage `json:"inputRef"`
+			}
+			if err := json.Unmarshal(ev.Data, &d); err != nil {
+				return nil
+			}
+			node := d.Node
+			if node == "" {
+				node = ev.Node
+			}
+			info := NodeStartInfo{
+				Node: node, Model: d.Model, Provider: d.Provider,
+				PromptVersion: d.PromptVersion, PromptHash: d.PromptHash,
+				StableHash: d.StableHash, ToolsHash: d.ToolsHash,
+			}
+			if ref, ok := decodeTraceArtifactRef(d.InputRef); ok {
+				info.InputRef = ref.Name
+				if body := readRef("node-input", ref); body != nil {
+					var in struct {
+						Messages []model.Message  `json:"messages"`
+						Tools    []model.ToolSpec `json:"tools"`
+					}
+					if json.Unmarshal(body, &in) == nil {
+						info.MessageCount = len(in.Messages)
+						info.ToolCount = len(in.Tools)
+					}
+				}
+			}
+			tr.NodeStart(info)
+
+		case model.EventModelRequest:
+			if !verbose || tr == nil {
+				return nil
+			}
+			var d struct {
+				MessageCount         int      `json:"messageCount"`
+				EstimatedInputTokens int      `json:"estimatedInputTokens"`
+				Tools                []string `json:"tools"`
+				Stream               bool     `json:"stream"`
+				Attempt              int      `json:"attempt"`
+			}
+			if err := json.Unmarshal(ev.Data, &d); err != nil {
+				return nil
+			}
+			key := roundKey(ev)
+			mu.Lock()
+			rounds[key]++
+			round := rounds[key]
+			mu.Unlock()
+			tr.ModelRequest(ModelRequestInfo{
+				Node: ev.Node, Round: round, Attempt: d.Attempt,
+				MessageCount: d.MessageCount, EstimatedInputToken: d.EstimatedInputTokens,
+				Tools: d.Tools, Stream: d.Stream,
+			})
+
+		case model.EventModelResponse:
+			if !verbose || tr == nil {
+				return nil
+			}
+			var d struct {
+				FinishReason  string      `json:"finishReason"`
+				Usage         model.Usage `json:"usage"`
+				DurationMs    int64       `json:"durationMs"`
+				ToolCallCount int         `json:"toolCallCount"`
+				Attempt       int         `json:"attempt"`
+				ErrorClass    string      `json:"errorClass"`
+				Code          string      `json:"code"`
+				Message       string      `json:"message"`
+			}
+			if err := json.Unmarshal(ev.Data, &d); err != nil {
+				return nil
+			}
+			key := roundKey(ev)
+			mu.Lock()
+			round := rounds[key]
+			mu.Unlock()
+			if round <= 0 {
+				round = 1
+			}
+			tr.ModelResponse(ModelResponseInfo{
+				Node: ev.Node, Round: round, Attempt: d.Attempt,
+				FinishReason: d.FinishReason, Usage: d.Usage,
+				Duration:      time.Duration(d.DurationMs) * time.Millisecond,
+				ToolCallCount: d.ToolCallCount,
+				ErrorClass:    d.ErrorClass, Code: d.Code, Message: d.Message,
+			})
+
 		case model.EventToolCall:
 			var d struct {
+				ID        string          `json:"id"`
 				Name      string          `json:"name"`
 				Arguments json.RawMessage `json:"arguments"`
 			}
-			if err := json.Unmarshal(ev.Data, &d); err == nil {
-				r.ToolCall(d.Name, d.Arguments)
+			if err := json.Unmarshal(ev.Data, &d); err != nil {
+				return nil
 			}
+			mu.Lock()
+			if d.ID != "" {
+				toolNames[d.ID] = d.Name
+			}
+			mu.Unlock()
+			r.ToolCall(d.Name, d.Arguments)
+
 		case model.EventToolResult:
 			var d struct {
+				ID         string `json:"id"`
 				Name       string `json:"name"`
 				OK         *bool  `json:"ok"`
 				Status     string `json:"status"`
 				DurationMs int64  `json:"durationMs"`
 			}
-			if err := json.Unmarshal(ev.Data, &d); err == nil {
-				ok := d.Status == "ok"
-				if d.OK != nil {
-					ok = *d.OK
-				}
-				name := d.Name
-				if name == "" {
-					name = string(ev.Node)
-				}
-				r.ToolResult(name, ok, time.Duration(d.DurationMs)*time.Millisecond)
+			if err := json.Unmarshal(ev.Data, &d); err != nil {
+				return nil
 			}
+			ok := d.Status == "ok"
+			if d.OK != nil {
+				ok = *d.OK
+			}
+			name := d.Name
+			mu.Lock()
+			if d.ID != "" {
+				if name == "" {
+					name = toolNames[d.ID]
+				}
+				if d.Name != "" {
+					toolNames[d.ID] = d.Name
+				}
+			}
+			mu.Unlock()
+			if name == "" {
+				name = string(ev.Node)
+			}
+			r.ToolResult(name, ok, time.Duration(d.DurationMs)*time.Millisecond)
+
+		case model.EventMessage:
+			if !verbose || tr == nil {
+				return nil
+			}
+			var d struct {
+				Role       model.Role      `json:"role"`
+				Content    string          `json:"content"`
+				ContentRef json.RawMessage `json:"contentRef"`
+				ToolCallID string          `json:"toolCallID"`
+			}
+			if err := json.Unmarshal(ev.Data, &d); err != nil || d.Role != model.RoleTool {
+				return nil
+			}
+			body := []byte(d.Content)
+			contentRef := ""
+			if ref, ok := decodeTraceArtifactRef(d.ContentRef); ok {
+				contentRef = ref.Name
+				if got := readRef("message", ref); got != nil {
+					body = got
+				}
+			}
+			var env struct {
+				OK        *bool  `json:"ok"`
+				Truncated bool   `json:"truncated"`
+				OutputRef string `json:"outputRef"`
+			}
+			_ = json.Unmarshal(body, &env)
+			ok := true
+			if env.OK != nil {
+				ok = *env.OK
+			}
+			name := ""
+			mu.Lock()
+			name = toolNames[d.ToolCallID]
+			mu.Unlock()
+			if name == "" {
+				name = string(ev.Node)
+			}
+			tr.ToolOutput(ToolOutputInfo{
+				Tool: name, OK: ok, Status: "ok",
+				Content: body, ContentRef: contentRef,
+				OutputRef: env.OutputRef, Truncated: env.Truncated,
+			})
 		}
 		return nil
 	})
+}
+
+func decodeTraceArtifactRef(raw json.RawMessage) (model.ArtifactRef, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return model.ArtifactRef{}, false
+	}
+	var ref model.ArtifactRef
+	if err := json.Unmarshal(raw, &ref); err == nil && ref.Name != "" {
+		return ref, true
+	}
+	var name string
+	if err := json.Unmarshal(raw, &name); err == nil && strings.TrimSpace(name) != "" {
+		return model.ArtifactRef{Name: name}, true
+	}
+	return model.ArtifactRef{}, false
 }
 
 // usageSink 把 usage 事件累加到 turn 摘要聚合器。

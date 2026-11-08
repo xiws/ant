@@ -370,7 +370,7 @@ func (r *runtimeImpl) emit(ctx context.Context, node model.NodeName, typ model.E
 	if r.deps.Sink == nil {
 		return nil
 	}
-	ev := &model.Event{Type: typ, Node: node, Data: model.MustJSON(data)}
+	ev := &model.Event{Type: typ, Node: node, Run: model.RunFromContext(ctx), Data: model.MustJSON(data)}
 	if err := r.deps.Sink.Emit(ctx, ev); err != nil {
 		return fmt.Errorf("tool: 写 %s 事件失败: %w", typ, err)
 	}
@@ -476,6 +476,7 @@ func toolResultEventData(st *callState, fin finishedResult) map[string]any {
 	}
 	data := map[string]any{
 		"id":         st.call.ID,
+		"name":       st.call.Name,
 		"status":     status,
 		"ok":         fin.ok,
 		"exitCode":   fin.meta.ExitCode,
