@@ -2,6 +2,8 @@ package readcode
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -204,6 +206,186 @@ func TestInvalidateRebuilds(t *testing.T) {
 	if _, err := idx.Resolve(ctx, "D"); err != nil {
 		t.Fatalf("Invalidate 后应看到新符号: %v", err)
 	}
+}
+
+// TestReadFileMode 覆盖“读出某个文件下具体函数”的主路径。
+func TestReadFileMode(t *testing.T) {
+	root, idx := newRCWorkspace(t)
+	ctx := context.Background()
+
+	for _, target := range []string{"pkg/a.go", "./pkg/a.go", filepath.Join(root, "pkg", "a.go")} {
+		res, err := idx.Read(ctx, Request{Target: target})
+		if err != nil {
+			t.Fatalf("Read(%q): %v", target, err)
+		}
+		if res.Mode != ModeFile || res.File != "pkg/a.go" {
+			t.Fatalf("Read(%q) = %+v", target, res)
+		}
+		// 只返回该文件内的函数，按声明顺序。
+		names := make([]string, 0, len(res.Snippets))
+		lines := make([]int, 0, len(res.Snippets))
+		for _, s := range res.Snippets {
+			if s.File != "pkg/a.go" || s.Package != "pkg" {
+				t.Fatalf("切片应来自目标文件: %+v", s)
+			}
+			names = append(names, symbolName(s.Code))
+			lines = append(lines, s.Line)
+		}
+		wantNames := []string{"A", "helper", "B", "C", "M", "N"}
+		if fmt.Sprint(names) != fmt.Sprint(wantNames) {
+			t.Fatalf("函数顺序/集合 = %v，期望 %v", names, wantNames)
+		}
+		wantLines := []int{4, 11, 13, 15, 19, 21}
+		if fmt.Sprint(lines) != fmt.Sprint(wantLines) {
+			t.Fatalf("行号 = %v，期望 %v", lines, wantLines)
+		}
+		// 文件模式不展开依赖：不包含别处文件、也不额外插入调用者。
+		joined := joinSnippets(res.Snippets)
+		if strings.Contains(joined, "TestOnly") || strings.Contains(joined, "func main()") {
+			t.Fatalf("文件模式不应带入其它文件:\n%s", joined)
+		}
+		if !strings.Contains(joined, "// A doc") {
+			t.Fatalf("应保留紧邻文档注释:\n%s", joined)
+		}
+	}
+}
+
+// TestReadFileFuncNoExpand 覆盖 file#Func：只返回本体，不展开调用链。
+func TestReadFileFuncNoExpand(t *testing.T) {
+	_, idx := newRCWorkspace(t)
+	ctx := context.Background()
+
+	res, err := idx.Read(ctx, Request{Target: "pkg/a.go#A"})
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if res.Mode != ModeSymbol || !res.NoExpand {
+		t.Fatalf("file#函数 应为本体模式: %+v", res)
+	}
+	if len(res.Snippets) != 1 {
+		t.Fatalf("应只返回 1 个切片，得到 %d", len(res.Snippets))
+	}
+	code := res.Snippets[0].Code
+	if !strings.Contains(code, "func A()") {
+		t.Fatalf("缺少 A: %s", code)
+	}
+	for _, unwanted := range []string{"func helper()", "func B()", "func (t T) M()"} {
+		if strings.Contains(code, unwanted) {
+			t.Fatalf("本体模式不应展开依赖 %q:\n%s", unwanted, code)
+		}
+	}
+	if res.Snippets[0].Line != 4 {
+		t.Fatalf("Line = %d，期望 4", res.Snippets[0].Line)
+	}
+}
+
+// TestReadFileFuncExpand 覆盖显式 Expand：从 file#Func 继续展开依赖。
+func TestReadFileFuncExpand(t *testing.T) {
+	_, idx := newRCWorkspace(t)
+	ctx := context.Background()
+
+	res, err := idx.Read(ctx, Request{Target: "pkg/a.go#A", Depth: 1, Expand: true})
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if res.NoExpand {
+		t.Fatalf("Expand 时不应是本体模式: %+v", res)
+	}
+	joined := joinSnippets(res.Snippets)
+	for _, want := range []string{"func A()", "func helper()", "func B()", "func (t T) M()"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("depth=1 缺少 %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "func C()") {
+		t.Errorf("depth=1 不应包含 C:\n%s", joined)
+	}
+}
+
+// TestReadFileFuncOnlyInThatFile 确认 file#Func 只看该文件，不退化成同目录/同包。
+func TestReadFileFuncOnlyInThatFile(t *testing.T) {
+	_, idx := newRCWorkspace(t)
+	_, err := idx.Read(context.Background(), Request{Target: "cmd/main.go#A"})
+	if err == nil || model.CodeOf(err) != "not_found" {
+		t.Fatalf("err = %v", err)
+	}
+	var me *model.Error
+	if !errors.As(err, &me) {
+		t.Fatalf("错误类型 = %T", err)
+	}
+	if hint := fmt.Sprint(me.Hint); !strings.Contains(hint, "main") {
+		t.Fatalf("提示应列出该文件可用函数: %v", me.Hint)
+	}
+}
+
+// TestReadFileErrors 覆盖文件模式的错误分支。
+func TestReadFileErrors(t *testing.T) {
+	_, idx := newRCWorkspace(t)
+	ctx := context.Background()
+
+	cases := []struct {
+		target string
+		code   string
+		detail string
+	}{
+		{"pkg/none.go", "not_found", "candidates"},
+		{"gen.go", "not_found", "generated"},
+		{"vendor/x.go", "not_found", ""},
+		{"cmd", "invalid_args", "isDir"},
+	}
+	for _, tc := range cases {
+		_, err := idx.Read(ctx, Request{Target: tc.target})
+		if err == nil || model.CodeOf(err) != tc.code {
+			t.Fatalf("Read(%q) err = %v，期望 %s", tc.target, err, tc.code)
+		}
+		var me *model.Error
+		if tc.detail != "" && errors.As(err, &me) {
+			if _, ok := me.Details[tc.detail]; !ok {
+				t.Fatalf("Read(%q) 缺少详情 %q: %+v", tc.target, tc.detail, me.Details)
+			}
+		}
+	}
+
+	// 非 Go 文件按不支持语言报错，而不是当成符号。
+	if _, err := idx.Read(ctx, Request{Target: "docs/x.md"}); err == nil || model.CodeOf(err) != "unsupported_language" {
+		t.Fatalf("非 Go 文件 err = %v", err)
+	}
+}
+
+// TestReadFileWithoutFunctions：文件存在但没有函数声明时给出明确错误。
+func TestReadFileWithoutFunctions(t *testing.T) {
+	root := t.TempDir()
+	writeRC(t, root, "go.mod", "module example.com/demo\n\ngo 1.26\n")
+	writeRC(t, root, "t.go", "package demo\n\ntype T struct{ X int }\n\nvar V = T{}\n")
+	idx := NewIndex(rcView{work: root})
+	_, err := idx.Read(context.Background(), Request{Target: "t.go"})
+	if err == nil || model.CodeOf(err) != "not_found" {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "没有函数") {
+		t.Fatalf("错误信息应说明没有函数: %v", err)
+	}
+}
+
+// symbolName 从切片源码里取函数名（不依赖解析器，仅用于断言）。
+func symbolName(code string) string {
+	for _, line := range strings.Split(code, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "func ") {
+			continue
+		}
+		rest := strings.TrimPrefix(line, "func ")
+		if strings.HasPrefix(rest, "(") {
+			if i := strings.Index(rest, ")"); i >= 0 {
+				rest = strings.TrimSpace(rest[i+1:])
+			}
+		}
+		if i := strings.IndexAny(rest, "([ "); i >= 0 {
+			rest = rest[:i]
+		}
+		return rest
+	}
+	return ""
 }
 
 func joinSnippets(snippets []Snippet) string {

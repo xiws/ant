@@ -55,7 +55,10 @@ CI 不调用真实 API；所有测试用 fake provider。
 ## 17.4 Golden / 快照测试
 
 - prompt 组装结果（稳定前缀）快照。
-- `read_code` 输出格式快照（含 `---` 分隔符）。
+- `read_code` 输出格式快照（含 `---` 分隔符；文件/本体模式的 `file:line` 标题）。
+- 人工查看 `read_code` 真实输出（不进 CI，默认跳过）：
+  `READCODE_VIEW='internal/readcode/index.go' go test ./internal/tool -run TestReadCodeView -v`；
+  支持 `file#函数`、`?depth=N&maxSymbols=M`，workspace 用 `READCODE_WORKDIR` 覆盖。
 - session 事件 JSON 结构快照（字段只增不改）。
 - CLI help/错误消息快照。
 - 配置示例必须能被真实 loader 解析。

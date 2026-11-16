@@ -75,7 +75,7 @@ func builtinTools(cfg config.View, deps Deps) []Tool {
 		&builtinTool{
 			spec: model.ToolSpec{
 				Name:        string(model.ToolReadCode),
-				Description: "从 Go 函数/方法出发，按调用关系收集项目内依赖方法的精简代码切片，排除标准库与第三方依赖。",
+				Description: "读取 Go 代码：target 为文件路径时列出该文件内全部函数/方法；为 file#函数 时只返回该函数本体；为函数名、path:line 或 pkg.Function 时按调用关系展开项目内依赖（排除标准库与第三方）。",
 				Schema:      []byte(readCodeSchema),
 				Mutating:    false,
 				Timeout:     toolTimeout,
@@ -238,7 +238,7 @@ const readCodeSchema = `{
   "properties": {
     "target": {
       "type": "string",
-      "description": "path#Symbol、Symbol、path:line 或 pkg.Symbol"
+      "description": "文件路径（列出该文件全部函数）、文件路径#函数（只取该函数）、函数名、path:line 或 pkg.Function（按依赖展开）"
     },
     "depth": { "type": "integer", "minimum": 1, "maximum": 6 },
     "maxSymbols": { "type": "integer", "minimum": 1, "maximum": 100 }

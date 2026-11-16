@@ -1070,13 +1070,40 @@ func NewToolkit(cfg config.View, deps Deps) *Toolkit
 package readcode
 
 type Index interface {
-	// Resolve 解析 target（path#Symbol / Symbol / path:line / pkg.Symbol），
+	// Read 是统一入口：文件/文件#函数默认只返回本体，
+	// 符号名/path:line/pkg.Function 按 §10.6 做依赖闭包。
+	Read(ctx context.Context, req Request) (Result, error)
+	// Resolve 解析符号 target（path#Symbol / Symbol / path:line / pkg.Symbol），
 	// 歧义返回 *model.Error{Code:"ambiguous_symbol"} 并附候选。
 	Resolve(ctx context.Context, target string) (Symbol, error)
 	// Closure 以符号为根做 BFS，返回按发现顺序排列的代码切片（§10.6）。
 	Closure(ctx context.Context, root Symbol, opt Options) ([]Snippet, error)
 	// Invalidate 在文件变化后丢弃缓存（session 内缓存）。
 	Invalidate(paths []string)
+}
+
+type Mode string
+
+const (
+	ModeFile   Mode = "file"   // 文件内函数清单，不展开依赖
+	ModeSymbol Mode = "symbol" // 符号本体或依赖闭包
+)
+
+type Request struct {
+	Target     string
+	Depth      int
+	MaxSymbols int
+	Expand     bool // 显式要求从 file#函数 展开依赖闭包
+}
+
+type Result struct {
+	Mode     Mode
+	Target   string
+	File     string   // ModeFile 时的文件
+	Symbol   *Symbol  // ModeSymbol 时的根符号
+	Snippets []Snippet
+	NoExpand bool     // 本次是否只返回函数本体
+	Omitted  []string // 依赖闭包因 maxSymbols 被截断的符号名
 }
 
 type Symbol struct {
@@ -1092,17 +1119,21 @@ type Options struct {
 	MaxSymbols int
 	IncludeTest bool
 	ModulePath  string
+	NoExpand    bool // 只返回根函数，不展开依赖
 }
 
 type Snippet struct {
 	File    string // workspace 相对路径
 	Package string
+	Name    string // 函数/方法名
+	Line    int    // 函数声明行
 	Imports []string
 	Code    string // 含紧邻文档注释
 }
 ```
 
-- `read_code` 工具类只做参数映射与输出格式化（`---` 分隔），不做解析逻辑（[§16.1](14-engineering.md#161-建议包结构) 要求可单测）。
+- `read_code` 工具类只做参数映射与输出格式化（`---` 分隔、输出预算裁剪），模式判定与解析逻辑都在 `readcode`，便于单测（[§16.1](14-engineering.md#161-建议包结构)）。
+- 文件/本体模式每个函数前输出 `file:line` 标题；依赖闭包沿用原始无行号格式。
 - 缓存按 session 生命周期；`Invalidate` 由 `edit`/`write` 成功后调用，避免读到旧符号。
 
 ## 21.10 `internal/approval`：审批与硬拒绝

@@ -139,7 +139,7 @@ internal/provider/provider.go
 internal/provider/provider_test.go
 internal/provider/registry.go
 internal/provider/retry.go
-...（已省略 53 项）
+...（已省略 54 项）
 ```
 
 ## 入口
