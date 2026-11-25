@@ -413,6 +413,62 @@ func TestRoutesStaticAndNoAccountUI(t *testing.T) {
 	}
 }
 
+func TestRoutesUIFragments(t *testing.T) {
+	ts, work, _ := testServer(t)
+
+	resp, err := http.Get(ts.URL + "/ui/sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ui sessions status = %d", resp.StatusCode)
+	}
+	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
+		t.Fatalf("ui sessions content-type = %q", resp.Header.Get("Content-Type"))
+	}
+	page := string(body)
+	for _, want := range []string{"data-session-id=\"" + projectTestID + "\"", "badge badge-sm mode-code", "projector fixture", "session-title"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("ui sessions missing %q: %s", want, page)
+		}
+	}
+	if strings.Contains(page, "sk-secret-value") {
+		t.Fatal("ui sessions must not leak provider secrets")
+	}
+
+	resp, err = http.Get(ts.URL + "/ui/sessions?q=second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(filtered), routeTestID2) || strings.Contains(string(filtered), projectTestID) {
+		t.Fatalf("ui sessions filter = %d %s", resp.StatusCode, filtered)
+	}
+
+	resp, err = http.Get(ts.URL + "/ui/sessions?mode=nope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("ui sessions bad mode status = %d", resp.StatusCode)
+	}
+
+	resp, err = http.Get(ts.URL + "/ui/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(statusBody), "本地模式 · 只读") ||
+		!strings.Contains(string(statusBody), work) || !strings.Contains(string(statusBody), `data-action="local-config"`) {
+		t.Fatalf("ui status = %d %s", resp.StatusCode, statusBody)
+	}
+}
+
 func TestRoutesStreamNotifiesChange(t *testing.T) {
 	ts, work, _ := testServer(t)
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/sessions/"+projectTestID+"/stream", nil)

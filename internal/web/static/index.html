@@ -1,20 +1,127 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="ant">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="referrer" content="no-referrer">
 <title>ant · 本地会话</title>
+<link rel="stylesheet" href="/assets/daisyui@5.css">
 <link rel="stylesheet" href="/assets/app.css">
+<script type="module" src="/assets/app.js"></script>
 </head>
 <body>
-<div id="app" aria-live="polite">
-  <noscript>ant serve 需要启用 JavaScript 才能浏览会话历史。</noscript>
-  <p class="empty-state">加载中…</p>
+<noscript>ant serve 需要启用 JavaScript 才能浏览会话历史。</noscript>
+<div id="app" class="app-shell" x-data="antShell" x-init="init()" x-cloak
+     :class="{ 'sidebar-collapsed': sidebarCollapsed, 'mobile-sidebar-open': mobileSidebarOpen, 'right-closed': !rightOpen }">
+
+  <aside id="sidebar" class="app-sidebar" aria-label="会话导航">
+    <div class="sidebar-brand">
+      <div class="brand-lockup">
+        <span class="brand-logo">ant</span>
+        <span class="brand-version" x-text="versionText">vdev</span>
+      </div>
+      <button class="btn btn-ghost btn-xs" type="button" @click="toggleSidebar()"
+              :aria-label="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
+              x-text="sidebarCollapsed ? '展开' : '收起'">收起</button>
+    </div>
+
+    <div class="sidebar-create">
+      <button class="btn btn-outline btn-sm sidebar-create-btn" type="button" @click="createSession()">
+        创建会话
+      </button>
+    </div>
+
+    <form id="session-filters" class="sidebar-filters"
+          hx-get="/ui/sessions" hx-target="#session-list" hx-swap="innerHTML"
+          hx-trigger="input changed delay:250ms, change" hx-indicator="#session-loading">
+      <label class="input input-sm sidebar-search">
+        <span class="search-glyph" aria-hidden="true">⌕</span>
+        <input id="session-search" name="q" type="search" autocomplete="off"
+               placeholder="搜索标题 / ID / 模型（/）" aria-label="搜索会话">
+      </label>
+      <div class="sidebar-filter-row">
+        <select class="select select-xs" name="mode" aria-label="按模式过滤">
+          <option value="">全部模式</option>
+          <option value="code">code</option>
+          <option value="plan">plan</option>
+          <option value="ask">ask</option>
+          <option value="council">council</option>
+        </select>
+        <select class="select select-xs" name="status" aria-label="按状态过滤">
+          <option value="">任意状态</option>
+          <option value="running">running</option>
+          <option value="idle">idle</option>
+          <option value="interrupted">interrupted</option>
+          <option value="failed">failed</option>
+        </select>
+      </div>
+    </form>
+
+    <div class="sidebar-scroll">
+      <div id="session-loading" class="htmx-indicator session-loading" aria-label="加载会话">
+        <span class="loading loading-spinner loading-xs"></span>
+      </div>
+      <div id="session-list" role="list"
+           hx-get="/ui/sessions" hx-include="#session-filters"
+           hx-trigger="load, ant:sessions-refresh from:body" hx-swap="innerHTML">
+        <div class="empty-state"><p>加载中…</p></div>
+      </div>
+    </div>
+
+    <footer id="sidebar-footer" class="sidebar-footer"
+            hx-get="/ui/status" hx-trigger="load, ant:status-refresh from:body" hx-swap="innerHTML">
+      <div class="local-card"><div class="loading loading-spinner loading-xs"></div></div>
+    </footer>
+  </aside>
+
+  <main id="main" class="app-main" aria-label="会话内容">
+    <div id="main-content" class="main-content">
+      <div class="empty-state"><p>加载中…</p></div>
+    </div>
+
+    <section id="composer" class="composer-shell" aria-label="终端命令输入区">
+      <div class="composer-card">
+        <div class="composer-top">
+          <label class="composer-mode">
+            <span class="composer-mode-glyph" aria-hidden="true">⌁</span>
+            <select class="select select-xs select-ghost" x-model="composerMode" aria-label="选择 mode">
+              <template x-for="mode in modes" :key="mode">
+                <option :value="mode" x-text="mode"></option>
+              </template>
+            </select>
+          </label>
+          <span class="badge badge-ghost badge-sm composer-readonly">只读 · 复制终端命令</span>
+        </div>
+        <textarea id="composer-text" class="composer-input" x-model="draft" rows="3"
+                  placeholder="描述你想要构建的内容，/ 调用指令，@ 文件或对话"
+                  @keydown.meta.enter.prevent="copyCommand()"
+                  @keydown.ctrl.enter.prevent="copyCommand()"></textarea>
+        <div class="composer-bottom">
+          <span class="composer-hint" x-text="composerHint()"></span>
+          <div class="composer-tools">
+            <select class="select select-xs select-ghost composer-model" x-model="composerModel" aria-label="选择模型">
+              <option value="">默认模型</option>
+              <template x-for="model in modelOptions" :key="model">
+                <option :value="model" x-text="model"></option>
+              </template>
+            </select>
+            <button class="btn btn-primary btn-circle btn-sm composer-send" type="button"
+                    :disabled="!draft.trim()" @click="copyCommand()"
+                    title="复制终端命令" aria-label="复制终端命令">↑</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <aside id="right" class="app-right" aria-label="上下文面板"></aside>
+
+  <button class="btn btn-circle btn-sm mobile-menu" type="button" @click="mobileSidebarOpen = true"
+          aria-label="打开侧栏">☰</button>
+  <div class="mobile-backdrop" :class="{ 'is-open': mobileSidebarOpen }" @click="mobileSidebarOpen = false"></div>
 </div>
 <div id="dialogs"></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script type="module" src="/assets/app.js"></script>
 </body>
 </html>

@@ -185,7 +185,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := w.Header()
 		header.Set("Content-Security-Policy",
-			"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "+
+			"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self' 'unsafe-eval'; "+
 				"connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 		header.Set("X-Content-Type-Options", "nosniff")
 		header.Set("Referrer-Policy", "no-referrer")

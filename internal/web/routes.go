@@ -27,6 +27,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/home", s.handleHome)
 	s.mux.HandleFunc("GET /api/home/prompt", s.handleHomePrompt)
 	s.mux.HandleFunc("GET /api/project", s.handleProject)
+	s.mux.HandleFunc("GET /ui/sessions", s.handleUISessions)
+	s.mux.HandleFunc("GET /ui/status", s.handleUIStatus)
 	s.mux.HandleFunc("GET /assets/{path...}", s.handleAsset)
 	s.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { s.serveIndex(w) })
 	s.mux.HandleFunc("/", s.handleFallback)

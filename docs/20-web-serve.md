@@ -4,7 +4,7 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 文档状态 | 已实现（v1.4 一期只读；`internal/web`、`internal/session/archive.go`、`internal/cli/serve.go`） |
+| 文档状态 | 已实现（v1.4 一期只读；`internal/web`、`internal/session/archive.go`、`internal/cli/serve.go`；前端 daisyUI + htmx + Alpine.js） |
 | 目标版本 | v1.4 |
 | 需求编号 | `R-WEB-<序号>` |
 | 决策编号 | D46–D50（暂记于本文 §22.13） |
@@ -30,7 +30,7 @@
 | G4 改动可看 | `edit` 显示 unified diff 与 `+/-` 统计；`write` 显示写入内容与新建/覆盖状态；右栏汇总本轮改动文件 |
 | G5 数据只来自 workspace 与 home | session 来自 `<workspace>/.ant`；全局配置与模型来自 `$ANT_HOME`（默认 `~/.ant`）；不扫描其他目录 |
 | G6 默认安全 | 只读、只监听回环地址、无账号、无 Cookie 身份、无写接口；路径与密钥都有边界 |
-| G7 零新增运行时依赖 | 只用 Go 标准库 `net/http` + `embed`；前端零构建、无 Node、无 CDN |
+| G7 零新增运行时依赖 | 只用 Go 标准库 `net/http` + `embed`；前端零构建、无 Node、无 CDN；daisyUI/htmx/Alpine.js 均为本地嵌入静态资源 |
 
 ### 22.1.3 非目标（v1.4 明确不做）
 
@@ -127,7 +127,7 @@
 | 对话/轨迹切换 | **保留** | 需求明确要求轨迹 |
 | 工具行、diff 卡、审批卡、计划卡 | **保留**（按 ant 事件模型裁剪） | 需求明确要求修改内容 |
 | 右栏文件/改动/产物 | **保留** | 方便核对改动 |
-| 底部输入框 | **替换为只读状态条** | 一期不写 session；二期恢复 |
+| 底部输入框 | **替换为只读命令 composer** | 保留输入框、mode/model 选择与发送外观；发送只复制终端命令，一期不写 session；二期恢复真实提交 |
 | 账号头像、用户名、登录/退出、余额/配额、云端会话 | **全部删除** | 需求明确“不需要账号登录” |
 | 账号设置页、登录弹窗、OAuth 回跳 | **全部删除** | 本地单用户，无账号概念 |
 | 品牌 Logo/字体/主题 | **替换为 ant 自己的轻量样式** | 不复刻品牌 |
@@ -153,15 +153,17 @@
 
 | 编号 | 级别 | 需求 |
 | --- | --- | --- |
-| R-WEB-08 | MUST | 左栏列出当前 workspace 的全部 session（分页/限制可配），显示标题、模式、模型、状态、turn 数、token、更新时间 |
+| R-WEB-08 | MUST | 左栏列出当前 workspace 的全部 session（分页/限制可配），显示标题、模式、状态、turn 数、token、相对时间与会话 ID；模型保留在详情/概览中 |
 | R-WEB-09 | MUST | 会话页按 turn 还原用户输入、助手正文、工具调用与结果、审批、计划、压缩、本轮摘要 |
 | R-WEB-10 | MUST | 工具调用显示名称、关键参数、状态、耗时、退出码；`edit` 显示 unified diff 与 `+/-`；`write` 显示写入内容与新建/覆盖 |
 | R-WEB-11 | MUST | 轨迹视图按轮次展示 `model_request`/`model_response`/`tool_call`/`tool_result`/`node_*`/`approval_*`/`context_compacted` 等事件，并支持详情 |
 | R-WEB-12 | MUST | 右栏展示本轮改动文件、当前文件预览、session 产物（artifact）列表与预览 |
 | R-WEB-13 | MUST | “本机”面板展示 workspace、home、版本、模型别名（无密钥）、配置来源与告警 |
 | R-WEB-14 | MUST | 运行中的 session 在 2s 内反映新增事件；无新事件时不打断阅读（保持滚动位置） |
-| R-WEB-15 | SHOULD | 支持窄屏：<1024 侧栏收成图标栏，<860 右栏覆盖显示，<640 单栏 |
+| R-WEB-15 | SHOULD | 支持窄屏：768–1023 侧栏收成图标栏且右栏覆盖，<768 单栏并用抽屉打开侧栏/右栏 |
 | R-WEB-16 | SHOULD | 键盘可达：Tab 焦点、`/` 搜索、`t` 切换轨迹、`[`/`]` 上/下会话、`Esc` 关闭面板 |
+| R-WEB-23 | MUST | 前端使用本地嵌入的 daisyUI、htmx、Alpine.js；不加载 CDN、不引入 Node 构建链；htmx 片段只读且由服务端转义 |
+| R-WEB-24 | MUST | 中栏 composer 不提交写请求；发送/新建动作只生成并复制对应 `ant` 终端命令 |
 
 ### 22.3.3 安全与数据边界
 
@@ -180,49 +182,53 @@
 
 ```text
 ┌──────────────────────────────┬──────────────────────────────────────────────┬──────────────────────────┐
-│ ant  v1.4            [搜索]  │ 这个项目做了什么                              │ 改动 (3)        [×]      │
-│ [全部] [code] [plan] [ask]   │ ask · ornith-1.5:9b · idle · 5 轮 · 163.7k tok│ ─────────────────────    │
-│                              │ [对话] [轨迹]                                 │ internal/a.go   +8 −2    │
-│ 今天                         │ ┌──────────────────────────────────────────┐ │ internal/b.go   +3 −0    │
-│ ● 这个项目做了什么   5 轮    │ │ 你  这个项目做了什么                       │ │ docs/c.md       +12 −4   │
+│ ant  v1.4            [收起]   │ 这个项目做了什么                              │ 改动 (3)        [×]      │
+│ [        创建会话        ]    │ ask · ornith-1.5:9b · idle · 5 轮 · 163.7k tok│ ─────────────────────    │
+│ [⌕ 搜索标题 / ID / 模型]      │ [对话] [轨迹]                                 │ internal/a.go   +8 −2    │
+│ [全部模式] [任意状态]         │ ┌──────────────────────────────────────────┐ │ internal/b.go   +3 −0    │
+│                              │ │ 你  这个项目做了什么                       │ │ docs/c.md       +12 −4   │
+│ 今天                         │ │                                          │ │                          │
+│ ● 这个项目做了什么   5 轮     │ │ 助手  这个项目是 ant ...                   │ │ [查看 diff]              │
 │   20261106-234456-df479f     │ │                                          │ │                          │
-│ ● 修复日志级别       2 轮    │ │ 助手  这个项目是 ant ...                   │ │ [查看 diff]              │
-│   20261106-...               │ │                                          │ │                          │
-│ 昨天                         │ │ ▸ 思考（历史未记录）                       │ │                          │
-│ ○ 设计 session 存储  3 轮    │ │ ▸ read  README.md        ok · 0ms         │ │                          │
+│ ● 修复日志级别       2 轮     │ │ ▸ read  README.md        ok · 0ms         │ │                          │
 │   20261106-...               │ │ ▸ edit  internal/x.go    ok · 31ms  +8 −2 │ │                          │
-│                              │ │   @@ -12,6 +12,8 @@ ...                   │ │                          │
-│                              │ │ ▸ bash  go test ./...    ok · 1.2s  exit 0│ │                          │
-│                              │ │                                          │ │                          │
+│ 昨天                         │ │ ├ @@ -12,6 +12,8 @@ ...                    │ │                          │
+│ ○ 设计 session 存储  3 轮     │ │ ▸ bash  go test ./...    ok · 1.2s  exit 0│ │                          │
+│   20261106-...               │ │                                          │ │                          │
 │                              │ │ 本轮完成 · 12.3s · in 9.2k / out 853      │ │                          │
-│                              │ │ 改动：internal/x.go                       │ │                          │
+│ ┌──────────────────────────┐ │ └──────────────────────────────────────────┘ │                          │
+│ │ ● 本地模式 · 只读         │ │ ┌──────────────────────────────────────────┐ │                          │
+│ │ /path/to/workspace        │ │ │ ⌁ ask                        只读 · 复制命令│ │                          │
+│ │ ant v1.4 · 127.0.0.1:7788 │ │ │ 描述你想要构建的内容，/ 调用指令，@ 文件   │ │                          │
+│ │ [本机配置] [设置]          │ │ │ 或对话                                    │ │                          │
+│ └──────────────────────────┘ │ │ 输入内容后复制终端命令      model:9b   [↑] │ │                          │
 │                              │ └──────────────────────────────────────────┘ │                          │
-│ ┌──────────────────────────┐ │ 只读模式 · 在终端继续：ant -s <id>   [复制]   │                          │
-│ │ ● 本地模式                │ └──────────────────────────────────────────────┘                          │
-│ │ /path/to/workspace        │                                                              │
-│ │ ant v1.4 · 127.0.0.1:7788 │                                                              │
-│ │ [本机配置] [设置]          │                                                              │
-│ └──────────────────────────┘ │                                                              │
 └──────────────────────────────┴──────────────────────────────────────────────┴──────────────────────────┘
 ```
 
 与参考页的差异：
 
-- 左下角**没有头像/账号/登录/退出/配额**，替换为“本地模式”状态卡：workspace、home、版本、监听地址、`本机配置`、`设置`。
-- 底部输入区在一期是只读状态条，明确告诉用户“去终端继续”，并提供 `ant -s <id>` 复制。
-- 左栏顶部“新建会话”一期变为禁用/说明入口；不制造“点了没反应”的假按钮。
+- 左栏顶部是 `ant` 品牌、折叠按钮和**创建会话**主按钮；下方仍是紧凑搜索、模式/状态过滤、按日期分组的会话列表。
+- 会话项显示标题、状态点、mode badge、轮数、token、相对时间和完整 session ID；当前会话使用高亮选中态。
+- 中栏底部由“只读状态条”改为**只读命令 composer**：输入框左上角选择 mode，右下角选择模型并以复制命令按钮结束。它保留参考页输入框的位置与视觉，但一期不发送 POST。
+- 点击“创建会话”或 composer 发送只会切换到新建会话草稿并生成 `ant new ...` 命令，实际会话仍在终端创建。
+- 右栏仍是上下文面板，默认打开“改动”；没有改动时打开“产物”，都没有时收起。
+- 左下角没有头像/账号/登录/退出/配额，只有“本地模式 · 只读”状态卡：workspace、home、版本、监听地址、`本机配置`、`设置`。
 
 ### 22.4.2 左栏
 
 | 区域 | 内容 | 交互 |
 | --- | --- | --- |
-| 品牌行 | `ant`、版本、折叠按钮 | 点击折叠/展开；版本点击打开“关于” |
-| 搜索 | 按标题、ID、模型过滤 | `/` 聚焦；输入即筛；清空恢复 |
-| 过滤 | `全部 / code / plan / ask / council`；状态 `running / idle / interrupted / failed` | 单选 chip；与搜索叠加 |
-| 会话列表 | 标题、ID 短码、相对时间、模式 badge、状态点、turn/token | 点击切换；键盘上下；当前项高亮 |
-| 分组 | 今天 / 昨天 / 更早 | 粘性小标题 |
-| 空状态 | “当前 workspace 还没有 session” + `ant "..."` 提示 | 复制命令 |
-| 底部 | 本地状态卡 + 本机配置 + 设置 | 打开对话框；不出现账号 |
+| 品牌行 | `ant`、版本、`收起/展开` | 点击折叠/展开；窄屏折叠为图标栏 |
+| 创建会话 | 全宽主按钮“创建会话” | 切到新建会话草稿并聚焦 composer；一期不写 session |
+| 搜索 | 按标题、ID、模型过滤 | `/` 聚焦；输入 250ms 防抖后由 htmx 刷新 `#session-list` |
+| 过滤 | mode：全部 / `code` / `plan` / `ask` / `council`；状态：任意 / `running` / `idle` / `interrupted` / `failed` | 下拉选择，与搜索叠加，htmx 刷新列表 |
+| 会话列表 | 标题、状态点、mode badge、轮数、token、相对时间、完整 session ID | 点击切换；键盘 `[`/`]`；当前项 `session-active` 高亮 |
+| 分组 | 今天 / 昨天 / 更早 | 服务端片段生成粘性小标题 |
+| 空状态 | “当前 workspace 还没有 session” + `ant "..."` 提示 | 展示终端命令；匹配不到时提示清空筛选 |
+| 底部 | “本地模式 · 只读”卡：workspace、版本、监听地址、`本机配置`、`设置` | 打开本地配置/设置对话框；不出现账号 |
+
+左栏列表由 htmx 请求 `GET /ui/sessions?q=&mode=&status=` 获取服务端转义的 HTML 片段并替换 `#session-list`；底部状态卡由 `GET /ui/status` 加载。这样列表/状态卡不需要在前端重复拼装 HTML，复杂会话与轨迹仍由 Go 投影后的 JSON + `render.js` 渲染。
 
 会话项状态点：
 
@@ -255,14 +261,26 @@
 | 错误 | `session_failed` / node 失败：错误分类、message、hint、失败 step；可复制 |
 | 未知事件 | 不进入对话流；在轨迹里以“未知事件”显示原始 JSON |
 
-**只读状态条**（替换输入框）：
+**只读命令 composer**（中栏底部）：
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ 只读模式 · 在终端继续该会话：ant -s 20261106-234456-df479f  [复制] │
-│ 需要修改代码或新建会话，请在 workspace 终端运行 ant。            │
+│ ⌁ ask                                       只读 · 复制终端命令 │
+│                                                              │
+│ 描述你想要构建的内容，/ 调用指令，@ 文件或对话                 │
+│                                                              │
+│ 输入内容后复制续跑命令（Ctrl/⌘+Enter）     ornith-1.5:9b  [↑] │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+- 左上角：mode 下拉（`code` / `plan` / `ask` / `council`），默认取当前 session 的 mode；新建草稿默认取配置 `defaultMode`。
+- 右下角：模型下拉（来自 `/api/config` 的别名，不包含密钥）和圆形发送按钮；新建草稿使用 `defaultModel`，续跑默认取 session 记录模型。
+- 发送按钮只做两件事：按当前路由生成命令并复制到剪贴板，然后显示 toast。**不发 POST、不写 session、不抢锁**。
+  - 新会话：`ant new -m <mode> -p <model> '<输入>'`
+  - 续跑：`ant -s <id> -m <mode> -p <model> '<输入>'`
+- “创建会话”按钮会回到 workspace 空态、聚焦 composer，并保留 mode/model 选择；同样只生成终端命令。
+- 输入框为空时发送按钮禁用；`Ctrl+Enter` / `⌘+Enter` 等价于点击发送。
+- 空态与无 session 时 composer 仍可见，便于复制第一条命令；session 载入时自动同步 mode/model 展示值。
 
 ### 22.4.4 轨迹页
 
@@ -359,10 +377,9 @@
 
 | 宽度 | 布局 |
 | --- | --- |
-| ≥1200 | 三栏常驻 |
-| 1024–1199 | 三栏；右栏可覆盖 |
-| 768–1023 | 左栏 56px 图标栏；右栏覆盖 |
-| <768 | 单栏；左栏抽屉；右栏全屏抽屉 |
+| ≥1024 | 三栏常驻；右栏可关闭 |
+| 768–1023 | 左栏自动收成 56px 图标栏；右栏覆盖显示 |
+| <768 | 单栏；左栏抽屉、右栏覆盖抽屉；顶部显示菜单按钮 |
 
 快捷键（不与浏览器冲突为准）：
 
@@ -823,12 +840,17 @@ Web 层错误 class 使用 `not_found` / `bad_request` / `too_large` / `unavaila
 
 ## 22.7 前端设计
 
-### 22.7.1 零构建
+> 技术栈的版本、加载顺序、API 边界、扩展方式和安全约束详见 [Technology.md](Technology.md)。本节只记录 `ant serve` 的页面契约。
 
-- 原生 ES Modules，`<script type="module" src="/assets/app.js">`；
-- 无 React/Vue/Svelte、无 Vite/Webpack、无 npm 依赖、无 CDN；
-- 目标浏览器：最近两个大版本的 Chrome/Edge/Firefox/Safari；
-- 理由：仓库是纯 Go 工程，构建与测试只需要 `go test`/`go build`；引入 Node 构建链会显著增加发布与供应链成本（[§16.2](14-engineering.md#162-依赖选择)）。
+### 22.7.1 零构建 + 本地 vendor
+
+- 原生 ES Modules + 三个本地嵌入的浏览器库：
+  - **daisyUI 5.8.2**：组件与主题变量（`daisyui@5.css`）；
+  - **htmx 2.0.11**：左栏会话列表、状态卡等服务端 HTML 片段刷新；
+  - **Alpine.js 3.17.5**：三栏外壳、composer、折叠/抽屉、客户端 UI 状态。
+- 所有 vendor 文件位于 `internal/web/static/assets/`，通过 `//go:embed static` 随二进制发布；不访问 CDN、不引入 Node/Vite/Webpack、不需要 `npm install`。
+- 目标浏览器：最近两个大版本的 Chrome/Edge/Firefox/Safari。
+- `browser@4.js`（Tailwind 浏览器编译运行时）不是运行必需文件；当前布局定制在 `app.css`，不加载它，避免运行时注入 `<style>` 破坏 CSP。
 
 ### 22.7.2 模块划分
 
@@ -836,95 +858,96 @@ Web 层错误 class 使用 `not_found` / `bad_request` / `too_large` / `unavaila
 static/
 ├── index.html
 └── assets/
-    ├── app.css          # 设计变量、三栏布局、消息/轨迹/差异样式
-    ├── app.js           # 启动、路由、状态、事件绑定
-    ├── api.js           # fetch 封装、ETag、SSE、错误转换
-    ├── render.js        # 对话/工具卡/摘要/右栏渲染
-    ├── trajectory.js    # 轨迹表、时间线、检查器
-    ├── diff.js          # diff 行渲染、折叠/展开、复制
-    └── markdown.js      # 安全 Markdown 子集
+    ├── daisyui@5.css        # daisyUI 5 组件与主题变量（vendor）
+    ├── htmx.min.js          # htmx 2（vendor）
+    ├── alpinejs@3.js        # Alpine.js 3（vendor）
+    ├── app.css              # ant 主题、三栏布局、composer、消息/轨迹/差异样式
+    ├── app.js               # Alpine 根组件、hash 路由、数据加载、SSE、快捷键
+    ├── api.js               # fetch 封装、ETag、SSE、错误转换
+    ├── render.js            # 对话/工具卡/摘要/右栏渲染
+    ├── trajectory.js        # 轨迹表、时间线、检查器
+    ├── diff.js              # diff 行渲染、折叠/展开、复制
+    └── markdown.js          # 安全 Markdown 子集
 ```
 
 | 模块 | 职责 | 关键导出 |
 | --- | --- | --- |
-| `app.js` | 解析 hash 路由、加载列表/详情、维护 UI 状态、快捷键 | `boot()` |
-| `api.js` | `getJSON`、`getText`、`openStream`、`ApiError` | `api.sessions()`、`api.session(id)` |
-| `render.js` | 纯函数 `renderSession(view)`、`renderTool(tool)`、`renderTurnSummary(turn)` | `renderChat` |
-| `trajectory.js` | `renderTrajectory(view)`、`renderInspector(row)` | `renderTrajectory` |
-| `diff.js` | `renderDiff(hunks)`、`diffStats` | `renderDiff` |
-| `markdown.js` | `renderMarkdown(text)`，先转义再解析 | `renderMarkdown` |
+| `app.js` | 注册 `Alpine.data('antShell')`；解析 hash 路由、加载列表/详情、维护 UI 状态、快捷键 | `boot()`、`antShell.init()` |
+| `api.js` | `request`、`getJSON`、`getText`、`openStream`、`ApiError` | `api.sessions()`、`api.session(id)` |
+| `render.js` | 纯函数式渲染会话头、turn、工具卡、审批、摘要、右栏 | `renderChat`、`renderRightPanel` |
+| `trajectory.js` | 轨迹表、时间线、检查器、搜索/折叠 | `renderTrajectory` |
+| `diff.js` | unified diff 行号、`+/-`、折叠、复制 | `renderDiff` |
+| `markdown.js` | 先转义再解析 Markdown 白名单 | `renderMarkdown` |
+
+服务端新增只读 HTML 片段：
+
+| 路由 | 用途 | 数据源 |
+| --- | --- | --- |
+| `GET /ui/sessions?q=&mode=&status=&limit=` | 左栏会话列表片段，htmx `innerHTML` 替换 `#session-list` | 与 `/api/sessions` 相同的 `Projector.List` |
+| `GET /ui/status` | 左下角“本地模式 · 只读”状态卡 | `Deps.Version`、workspace、请求 Host |
+
+两个 `/ui/*` 路由均为 GET、无写副作用、`text/html; charset=utf-8`、`Cache-Control: no-store`，并由 `html.EscapeString`/手工安全拼接转义所有动态文本。
 
 ### 22.7.3 状态与路由
 
-Hash 路由，便于静态托管与刷新：
+Hash 路由不变：
 
 ```text
-#/                          → 空态/最近会话
+#/                          → workspace 空态 + 新会话 composer
 #/sessions/<id>             → 对话
 #/sessions/<id>/trajectory  → 轨迹
 #/sessions/<id>?turn=3      → 定位到第 3 轮
 #/settings                  → 设置对话框
 ```
 
-状态：
+Alpine 根状态负责外壳交互：`sidebarCollapsed`、`mobileSidebarOpen`、`rightOpen`、`composerMode`、`composerModel`、`draft`、`hasSession`、`modelOptions`、`versionText`。业务数据仍由 `app.js` 的普通状态对象维护，原因：
 
-```js
-const state = {
-  route: { name: 'session', id: null, view: 'chat' },
-  workspace: null,
-  home: null,
-  sessions: [],
-  session: null,
-  filters: { q: '', mode: '', status: '' },
-  ui: { sidebar: true, right: 'changes', theme: 'auto', density: 'standard' },
-  lastSeq: 0,
-};
-```
+- 会话详情体积大、工具卡/轨迹需要命令式 DOM 渲染，不适合全部放进 Alpine 响应式树；
+- htmx 负责“左栏片段”，Alpine 负责“外壳状态”，`render.js` 负责“复杂历史内容”，三者边界清晰。
 
 数据流：
 
 ```text
-hashchange → route → api.session(id) → render(app)
-SSE changed → api.session(id, {ifNoneMatch}) → 304? 忽略 : merge+render
-筛选输入 → 本地过滤 sessions（或重新 GET）
+htmx load / 过滤输入
+  → GET /ui/sessions → 替换 #session-list → app.js 同步 data-* 并标记 active
+
+hashchange
+  → app.js 解析 route → GET /api/sessions/<id> → render.js 渲染中/右栏
+  → Alpine 更新 composer mode/model 与 hasSession
+
+SSE changed
+  → app.js 带 If-None-Match 重取详情 → 304 则忽略
+  → htmx.trigger(body, 'ant:sessions-refresh') 刷新左栏片段
 ```
 
 ### 22.7.4 渲染原则
 
 - **服务端投影，前端只渲染**：diff 行号、tool 状态、turn 汇总都在 Go 侧算好；JS 不重复实现事件状态机。
-- **增量更新**：新事件只追加/替换对应 turn；不整页重绘；保持滚动位置。
-- **虚拟化**：单 session > 200 个 turn 时，只渲染可视 turn + 上下缓冲；轨迹表 > 1000 行时按 turn 折叠。
+- **片段优先**：左栏列表和本地状态卡由服务端输出 HTML，htmx 做局部替换；复杂 turn/轨迹由结构化 JSON 驱动 `render.js`。
+- **增量更新**：SSE 只通知“有变化”，客户端按 ETag 重取；304 时保持滚动位置与 DOM。
 - **空/错/加载**三态必须有；任何单项失败只降级该卡片。
-- **可复制**：session ID、路径、命令、代码、错误、diff 都可复制。
+- **可复制**：session ID、路径、命令、代码、错误、diff 都可复制；composer 的核心动作就是复制命令。
 - **可访问**：语义化标签、`aria-live` 状态、焦点环、键盘操作、颜色+符号双编码。
 
-### 22.7.5 安全渲染
+### 22.7.5 安全渲染与 CSP
 
 - Markdown 先 `escapeHTML`，再解析白名单语法；禁止原始 HTML。
 - 链接只允许 `http:`/`https:`/相对路径；`target="_blank"` 加 `rel="noopener noreferrer"`。
-- 代码块用 `textContent` 写入，不拼 HTML。
-- diff 行文本 `textContent`；行号/符号单独元素。
-- 不使用 `innerHTML` 渲染任何服务端文本；模板只拼接结构化字段，文本走 `textContent`。
-- CSP 禁止内联脚本；`script-src 'self'`；样式放外部 CSS。
+- 代码块、diff 行、工具输出均用 `textContent` 写入，不拼 HTML。
+- htmx 只 swap 由 `/ui/*` 返回并已转义的服务端片段；用户/模型文本不进入 htmx 片段，除非已转义。
+- CSP 禁止内联脚本和 `onclick`，`index.html` 不写内联 `style=""`。
+- Alpine.js 标准构建使用 `new Function` 解析 `x-*` 表达式，因此 `script-src` 需要放行 `'unsafe-eval'`；这是本地单用户、只读、无写接口场景下接受的权衡。其余脚本仍只允许 `'self'`，且不加载任何第三方 CDN。若未来需要更严格 CSP，可替换为 Alpine CSP build 并移除 `'unsafe-eval'`。
+- 不使用 `innerHTML` 渲染任何服务端文本；模板只拼接结构化字段，文本走 `textContent`；htmx 片段除外，但其动态字段全部由 Go 侧转义。
 
 ### 22.7.6 视觉规范
 
-| 变量 | 浅色 | 深色 |
-| --- | --- | --- |
-| 背景 | `#fafafa` | `#111315` |
-| 面板 | `#ffffff` | `#181b1f` |
-| 边框 | `#e5e7eb` | `#2a2f36` |
-| 主文本 | `#18181b` | `#e8eaed` |
-| 次文本 | `#6b7280` | `#9aa0a6` |
-| 强调 | `#2563eb` | `#60a5fa` |
-| 成功 | `#15803d` | `#4ade80` |
-| 警告 | `#b45309` | `#fbbf24` |
-| 危险 | `#b91c1c` | `#f87171` |
-
+- 主题：daisyUI 自定义 `ant`（深色）与 `ant-light`（浅色），`auto` 跟随系统；组件色由 daisyUI 的 `--color-*` 变量控制。
 - 字体：系统 UI 字体；代码 `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`。
-- 内容最大宽度 860px；表格/代码可横向滚动。
-- 模式 badge：`code` 蓝、`plan` 紫、`ask` 绿、`council` 琥珀；状态点另用颜色。
-- 动效克制：只用于状态脉冲、面板滑入；尊重 `prefers-reduced-motion`。
+- 左栏：272px；折叠 56px；移动端抽屉。
+- 中栏：内容最大宽度 860px；composer 使用 20px 圆角、底部悬浮。
+- 右栏：默认约 38%，窄屏覆盖显示。
+- 模式 badge：`code` 蓝、`plan` 紫、`ask` 绿、`council` 琥珀；状态点另用颜色且带 `title`/`aria-label`。
+- 动效克制：只用于状态脉冲、抽屉滑入；尊重 `prefers-reduced-motion`。
 
 ## 22.8 文件清单（在什么位置建立什么文件）
 
@@ -935,16 +958,20 @@ SSE changed → api.session(id, {ifNoneMatch}) → 304? 忽略 : merge+render
 | `internal/session/archive.go` | 只读归档 facade | `Archive`/`Snapshot`/`LockState`；`List`/`Snapshot`/`Artifact`；路径与大小上限 | ~220 行 |
 | `internal/session/archive_test.go` | 归档单测 | 不写目录、坏行、缺失 artifact、路径穿越、锁状态 | ~200 行 |
 | `internal/web/server.go` | Server 生命周期 | `Deps`、`New`、`Handler`、`Serve`、中间件 | ~180 行 |
-| `internal/web/routes.go` | 路由与 handler | `GET /api/*`、静态 fallback、错误 JSON、参数解析 | ~300 行 |
+| `internal/web/routes.go` | 路由与 handler | `GET /api/*`、`GET /ui/*`、静态 fallback、错误 JSON、参数解析 | ~300 行 |
+| `internal/web/ui.go` | htmx HTML 片段 | `/ui/sessions`、`/ui/status`；服务端转义、日期分组、状态/模式 class | ~220 行 |
 | `internal/web/types.go` | API DTO | `SessionSummary`/`SessionView`/`TurnView`/`ItemView`/`ToolView`/`RequestView`/`DiffHunk` | ~220 行 |
 | `internal/web/project.go` | 事件投影 | `Projector`、turn/tool/request 状态机、usage 汇总、artifact 读取 | ~500 行 |
 | `internal/web/diff.go` | unified diff 解析 | `ParseUnifiedDiff`、`WriteDiff`、行号/统计/截断 | ~200 行 |
 | `internal/web/artifacts.go` | 安全读取 | workspace 文件、home 白名单、artifact、大小/符号链接校验、缓存 | ~160 行 |
 | `internal/web/stream.go` | SSE | `changed`/`ping`、连接上限、ctx 退出 | ~120 行 |
 | `internal/web/static.go` | 嵌入静态资源 | `//go:embed static`、`fs.Sub`、SPA fallback | ~40 行 |
-| `internal/web/static/index.html` | 页面骨架 | 三栏、空态、对话框挂载点 | ~90 行 |
-| `internal/web/static/assets/app.css` | 样式 | 变量、布局、消息、工具卡、diff、轨迹、响应式 | ~700 行 |
-| `internal/web/static/assets/app.js` | 启动/路由/状态 | 初始化、hash 路由、列表、SSE、快捷键 | ~350 行 |
+| `internal/web/static/index.html` | 页面骨架 | Alpine 根组件、daisyUI 三栏外壳、htmx 列表/状态卡占位、composer | ~130 行 |
+| `internal/web/static/assets/daisyui@5.css` | 组件库 vendor | daisyUI 5.8.2 本地文件，不访问 CDN | 1.2 MB |
+| `internal/web/static/assets/htmx.min.js` | htmx vendor | htmx 2.0.11 本地文件 | ~52 KB |
+| `internal/web/static/assets/alpinejs@3.js` | Alpine vendor | Alpine.js 3.17.5 本地文件 | ~56 KB |
+| `internal/web/static/assets/app.css` | 样式 | ant 深/浅主题、布局、composer、消息、工具卡、diff、轨迹、响应式 | ~900 行 |
+| `internal/web/static/assets/app.js` | Alpine 根组件/路由/状态 | `Alpine.data("antShell")`、hash 路由、列表同步、SSE、快捷键 | ~800 行 |
 | `internal/web/static/assets/api.js` | API 封装 | fetch、ETag、错误、SSE | ~120 行 |
 | `internal/web/static/assets/render.js` | 对话渲染 | 会话头、turn、消息、工具卡、审批、摘要、右栏 | ~600 行 |
 | `internal/web/static/assets/trajectory.js` | 轨迹渲染 | 表格、时间线、检查器、搜索/折叠 | ~450 行 |
@@ -954,6 +981,7 @@ SSE changed → api.session(id, {ifNoneMatch}) → 304? 忽略 : merge+render
 | `internal/cli/serve.go` | serve 命令 | 解析路径、best-effort 配置、启动/打印/信号/退出码 | ~140 行 |
 | `internal/cli/serve_test.go` | 命令测试 | 参数、回环校验、`:0` 启动、优雅关闭 | ~160 行 |
 | `docs/20-web-serve.md` | 本文 | 设计契约 | — |
+| `docs/Technology.md` | 技术使用文档 | daisyUI/htmx/Alpine.js 版本、加载、API 边界、htmx 片段、安全约束 | — |
 
 ### 22.8.2 修改文件
 
@@ -996,9 +1024,13 @@ internal/
     ├── artifacts.go
     ├── stream.go
     ├── static.go
+    ├── ui.go                           # 新增：htmx HTML 片段
     ├── static/
     │   ├── index.html
     │   └── assets/
+    │       ├── daisyui@5.css           # vendor
+    │       ├── htmx.min.js             # vendor
+    │       ├── alpinejs@3.js           # vendor
     │       ├── app.css
     │       ├── app.js
     │       ├── api.js
@@ -1008,6 +1040,7 @@ internal/
     │       └── markdown.js
     └── testdata/
 docs/20-web-serve.md                    # 本文
+docs/Technology.md                      # 技术使用文档
 ```
 
 ## 22.9 组合根与命令接入
@@ -1250,11 +1283,11 @@ if ctx.Err() != nil && code == 0 && app.opts.command != "serve" {
 | 威胁 | 防护 |
 | --- | --- |
 | 其他本地用户通过 HTTP 读取 session | v1.4 默认信任本机用户（仅回环）；多用户主机必须加 token 或不要运行（见下） |
-| 恶意网页通过浏览器访问 `127.0.0.1` | Host 校验 + 无 CORS + 无写接口 + CSP；一期只读，CSRF 无副作用 |
+| 恶意网页通过浏览器访问 `127.0.0.1` | Host 校验 + 无 CORS + 无写接口 + CSP；一期只读，CSRF 无副作用；htmx 表单全为 GET |
 | DNS rebinding | Host 只允许 `localhost`/`127.0.0.1`/`[::1]` |
 | 路径穿越/符号链接逃逸 | 见 §22.10.3 |
 | 密钥泄露 | 只下发解析后的模型元数据；不返回 provider key/headers/env |
-| XSS（会话内容含恶意 HTML） | Markdown 白名单 + `textContent` + CSP |
+| XSS（会话内容含恶意 HTML） | Markdown 白名单 + `textContent` + 服务端 HTML 片段转义 + CSP；Alpine 需要 `unsafe-eval` 的残余风险在本地只读边界内接受 |
 | 大文件/大 session 拖垮进程 | 大小/条数上限 + 分页 + 413 |
 
 **多用户主机的残余风险**：任何本地用户都能连接回环端口；服务端以启动用户身份读文件。若机器不是单人使用，一期建议不要把 workspace 放在共享目录，或在二期加 `--token`（URL 带随机 token，不弹登录页、不涉及账号）。这不是账号登录，但属于访问控制；默认关闭，保持“无登录”的产品要求。
@@ -1295,8 +1328,8 @@ if ctx.Err() != nil && code == 0 && app.opts.command != "serve" {
 
 ```text
 Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self';
-  script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';
-  frame-ancestors 'none'
+  script-src 'self' 'unsafe-eval'; connect-src 'self'; base-uri 'none';
+  form-action 'none'; frame-ancestors 'none'
 X-Content-Type-Options: nosniff
 Referrer-Policy: no-referrer
 Cross-Origin-Opener-Policy: same-origin
@@ -1306,13 +1339,14 @@ Cross-Origin-Resource-Policy: same-origin
 - 不加 `Access-Control-Allow-Origin`；浏览器同源即可。
 - 静态资源可加 `Cache-Control: public, max-age=3600`；API 默认 `no-store`。
 - 不使用内联脚本；`index.html` 不写 `onclick`；也不写内联 `style=""`（CSP 未放行 `unsafe-inline`）。
+- `script-src` 放行 `'unsafe-eval'` 仅因 Alpine.js 标准构建用 `new Function` 解析 `x-*` 表达式；不使用 CDN、不加载用户脚本，且所有模型/会话文本先转义。后续可切换 Alpine CSP build 并收紧到 `script-src 'self'`。
 
 ### 22.10.5 只读保证
 
 - `session.Archive` 不调用 `Store.Open`，不创建 `artifacts/`；
 - 所有文件操作只有只读 API：`os.Open`/`os.ReadFile`/`os.Stat`/`os.ReadDir`/`filepath.EvalSymlinks`；不调用 `Mkdir`/`WriteFile`/`Remove`/`Lock`；
 - 服务日志只写 stderr，不写 `.ant/logs`；
-- 前端没有提交按钮/表单；一期没有 POST；
+- 前端没有写提交：`/ui/sessions` 与筛选表单只发 GET；composer 的发送/新建按钮只复制终端命令，不调用 `fetch` POST；一期没有 POST 路由；
 - 测试用目录快照断言 `ant serve` 前后 `.ant` 无变化（除操作系统 atime）。
 
 ### 22.10.6 密钥与敏感内容
@@ -1356,8 +1390,10 @@ Cross-Origin-Resource-Policy: same-origin
 6. 打开“本机配置”：workspace/home/版本/模型/来源/告警正确；无 apiKey。
 7. 在另一个终端对同一 session 运行 `ant "..."`：页面 2s 内出现新 turn/新工具行，滚动位置不跳。
 8. 窄屏 800px：侧栏收成图标栏；右栏可覆盖；键盘可达。
-9. `curl -H 'Host: evil' http://127.0.0.1:7788/api/health` 返回 403；`ant serve --listen 0.0.0.0:7788` 退出 2。
-10. Ctrl-C：优雅停止，退出码 0；`.ant` 下无新增文件。
+9. 在 composer 输入内容：顶部 mode 下拉和右下角模型下拉可用；点击发送/`Ctrl+Enter` 复制 `ant new ...` 或 `ant -s ...` 命令，不产生 POST，也不写 `.ant`。
+10. 在左栏输入搜索或切换 mode/status：htmx 刷新 `#session-list`，选中项高亮保持；`/ui/status` 显示 workspace/版本/监听地址。
+11. `curl -H 'Host: evil' http://127.0.0.1:7788/api/health` 返回 403；`ant serve --listen 0.0.0.0:7788` 退出 2。
+12. Ctrl-C：优雅停止，退出码 0；`.ant` 下无新增文件。
 
 ### 22.11.4 性能目标
 
@@ -1367,7 +1403,7 @@ Cross-Origin-Resource-Policy: same-origin
 | 详情 10k 事件投影 | < 500ms |
 | 首屏可交互 | < 300ms（本地） |
 | 常驻内存 | < 150MB（100 session 缓存） |
-| 静态资源总量 | < 250KB（未压缩） |
+| 静态资源总量 | < 2MB（未压缩；daisyUI CSS 约 1.2MB） |
 | SSE 通知延迟 | < 1.5s（1s 轮询 + 网络） |
 
 ### 22.11.5 验收清单
@@ -1394,6 +1430,8 @@ Cross-Origin-Resource-Policy: same-origin
 - [ ] R-WEB-20 安全响应头
 - [ ] R-WEB-21 无账号 UI/路由/存储
 - [ ] R-WEB-22 测试覆盖关键边界
+- [ ] R-WEB-23 daisyUI/htmx/Alpine 本地加载，不访问 CDN
+- [ ] R-WEB-24 composer 只复制命令，无 POST/写 session
 
 ## 22.12 实施计划
 
@@ -1414,7 +1452,7 @@ Cross-Origin-Resource-Policy: same-origin
 | D46 | `ant serve` 一期**只读**：只展示历史，不发消息、不审批、不新建 | 不取 session 锁、无写接口、无 CSRF、无审批桥；历史是需求核心；可快速交付 | 一步做完整交互（锁冲突、审批超时、断线重连复杂）；桌面端（跨平台成本高） |
 | D47 | **无账号 + 只监听回环**；不加登录页、不加 Cookie 身份 | 本地单用户；账号对本地只读没有安全收益；避免“登录墙”与密钥托管 | URL token（可作为多用户主机的可选二期）；OAuth/账号（违背需求）；远程访问（无 TLS/认证，不做） |
 | D48 | 事件投影，**不建数据库/索引** | `events.jsonl` 已是事实来源（[D18](17-adr.md#19-设计决策记录adr)）；只读投影无同步问题；与现有恢复/审计共用数据 | SQLite 索引（依赖、双写、迁移）；预生成 snapshot（版本/失效复杂） |
-| D49 | 前端**零构建**，原生 ES Modules + Go `embed` | 单二进制、无 Node 构建依赖、离线可用；只读页面复杂度可控 | React/Vite（构建链、依赖、包体）；服务端模板（交互/局部更新差） |
+| D49 | 前端**零构建**：原生 ES Modules + 本地 vendor（daisyUI/htmx/Alpine）+ Go `embed` | 单二进制、无 Node 构建依赖、离线可用；daisyUI 提供视觉组件，htmx 负责服务端片段，Alpine 负责局部外壳状态 | React/Vite（构建链、依赖、包体）；全量服务端模板（复杂轨迹/差异化渲染成本高） |
 | D50 | **单 workspace + home 白名单**，不做跨项目扫描 | 与 §9.8 一致；隐私与性能可控；避免把 home 变成任意文件服务器 | 工作区切换器（扫描磁盘）；多 workspace 聚合（隐私/权限复杂） |
 
 ### 22.13.1 备选方案对比
@@ -1454,6 +1492,8 @@ Cross-Origin-Resource-Policy: same-origin
 | R-WEB-13 | §22.4.6、§22.6.4 | config API |
 | R-WEB-14 | §22.6.7 | SSE 测试 |
 | R-WEB-15/16 | §22.4.8 | 手工/可访问性检查 |
+| R-WEB-23 | §22.7、§22.11 | 静态资源扫描 + htmx 片段测试 |
+| R-WEB-24 | §22.4.3、§22.10.5 | composer 命令生成/复制 + 无写接口测试 |
 | R-WEB-22 | §22.11 | `go test ./...` |
 
 ## 22.15 二期：交互式 Web（预留设计）
