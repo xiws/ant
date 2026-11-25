@@ -27,7 +27,10 @@
   - `.ant/`：防止模型篡改 session/配置/锁；
   - 可通过 `sandbox.protectedPaths` 扩展，但不能移除 `.git`/`.ant` 的内置保护。
 - 允许配置额外只读/读写目录（`allowReadPaths`/`allowWritePaths`），默认空；额外目录同样做符号链接解析。
-- bash 的 cwd 必须在 workspace 内；命令中出现的 workspace 外路径/`..` 触发审批。
+- bash 的 cwd 必须在 workspace 内；命令中出现的 workspace 外路径触发审批。判定按**归一后的真实路径**做，与文件工具同一口径：
+  - `a/../b` 这类归一后仍在 workspace 内的路径不触发；
+  - `2>/dev/null`、`/dev/stdout` 等设备/伪路径重定向不触发；
+  - 命令里写 workspace 的软链拼法而启动时已 `EvalSymlinks` 到真实路径时，两者视为同一目录。
 - TOCTOU：写操作前再次校验路径与 hash；Unix 下尽量使用 `O_NOFOLLOW` 打开最终文件，降低符号链接替换风险。
 
 ## 12.3 审批分级

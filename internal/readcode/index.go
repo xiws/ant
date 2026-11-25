@@ -62,6 +62,8 @@ type symbolIndex struct {
 	funcs    map[string]*funcInfo            // 稳定 key -> 函数
 	parseErr map[string]error
 	omitted  []string
+	// generated 记录因生成文件被跳过的路径，便于给出准确错误。
+	generated map[string]bool
 }
 
 // NewIndex 构造会话内 Go 符号索引；索引在首次使用时惰性构建。
@@ -121,6 +123,7 @@ func (s *symbolIndex) buildLocked(ctx context.Context) error {
 	s.funcs = map[string]*funcInfo{}
 	s.parseErr = map[string]error{}
 	s.omitted = nil
+	s.generated = map[string]bool{}
 	s.module = findModulePath(s.work)
 
 	err := filepath.WalkDir(s.work, func(path string, d os.DirEntry, walkErr error) error {
@@ -150,14 +153,15 @@ func (s *symbolIndex) buildLocked(ctx context.Context) error {
 		if err != nil {
 			return nil
 		}
-		if generatedPattern.Match(body) {
-			return nil
-		}
 		rel, err := filepath.Rel(s.work, path)
 		if err != nil {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
+		if generatedPattern.Match(body) {
+			s.generated[rel] = true
+			return nil
+		}
 		fset := token.NewFileSet()
 		parsed, err := parser.ParseFile(fset, path, body, parser.ParseComments)
 		if err != nil {
@@ -239,6 +243,18 @@ func (s *symbolIndex) buildLocked(ctx context.Context) error {
 
 func (f *funcInfo) key() string {
 	return f.file.rel + "#" + f.sym.Receiver + "." + f.sym.Name + "@" + strconv.Itoa(f.sym.Line)
+}
+
+// snippet 把函数切成代码片段（含紧邻文档注释）。
+func (f *funcInfo) snippet() Snippet {
+	return Snippet{
+		File:    f.file.rel,
+		Package: f.file.pkg,
+		Name:    f.sym.Name,
+		Line:    f.sym.Line,
+		Imports: append([]string(nil), f.file.imports...),
+		Code:    string(f.file.src[f.start:f.end]),
+	}
 }
 
 func receiverType(fl *ast.FieldList) string {
@@ -347,21 +363,19 @@ func (s *symbolIndex) resolveInFile(path, name string) (Symbol, error) {
 				Hint:    "修复语法错误后重试",
 			}
 		}
-		return Symbol{}, notFound(path, s.similarSymbols(name))
+		if s.generated[rel] {
+			return Symbol{}, generatedFile(rel)
+		}
+		return Symbol{}, notFoundFile(path, s.similarFilesLocked(rel))
 	}
-	dir := filepath.ToSlash(filepath.Dir(rel))
-	candidates := make([]*funcInfo, 0)
-	for _, fn := range s.byName[name] {
-		if filepath.ToSlash(filepath.Dir(fn.file.rel)) != dir {
-			continue
+	candidates := make([]*funcInfo, 0, 1)
+	for _, fn := range fi.funcs {
+		if fn.sym.Name == name {
+			candidates = append(candidates, fn)
 		}
-		if fn.file.pkg != fi.pkg {
-			continue
-		}
-		candidates = append(candidates, fn)
 	}
 	if len(candidates) == 0 {
-		return Symbol{}, notFound(path+"#"+name, s.similarSymbols(name))
+		return Symbol{}, notFoundInFile(rel, name, funcNamesOf(fi, 8))
 	}
 	if len(candidates) > 1 {
 		return Symbol{}, ambiguous(name, candidates)
@@ -405,6 +419,18 @@ func (s *symbolIndex) resolveQualified(pkg, name string) (Symbol, error) {
 	}
 	if len(candidates) == 0 {
 		return Symbol{}, notFound(pkg+"."+name, s.similarSymbols(name))
+	}
+	// 包级函数与方法同名时，pkg.Name 优先指向包级函数。
+	if len(candidates) > 1 {
+		plain := make([]*funcInfo, 0, 1)
+		for _, fn := range candidates {
+			if fn.sym.Receiver == "" {
+				plain = append(plain, fn)
+			}
+		}
+		if len(plain) == 1 {
+			candidates = plain
+		}
 	}
 	if len(candidates) > 1 {
 		return Symbol{}, ambiguous(pkg+"."+name, candidates)
@@ -553,13 +579,78 @@ func invalidArgs(message, hint string) error {
 	return &model.Error{Class: model.ErrToolInvalidArgs, Code: "invalid_args", Message: message, Hint: hint}
 }
 
+// notFoundFile 是“target 指向的文件不在索引里”的错误。
+func notFoundFile(path string, similar []string) error {
+	hint := "路径相对 workspace；确认文件存在且后缀为 .go"
+	if len(similar) > 0 {
+		hint = "是否想找：" + strings.Join(similar, "、")
+	}
+	return &model.Error{
+		Class: model.ErrToolFailed, Code: "not_found",
+		Message: fmt.Sprintf("找不到文件 %q", path),
+		Hint:    hint,
+		Details: map[string]any{"target": path, "candidates": similar},
+	}
+}
+
+// notFoundInFile 在文件内找不到指定函数时给出该文件可用函数名。
+func notFoundInFile(rel, name string, available []string) error {
+	hint := fmt.Sprintf("%s 内没有函数 %q", rel, name)
+	if len(available) > 0 {
+		hint = fmt.Sprintf("%s 内没有函数 %q；该文件有：%s", rel, name, strings.Join(available, "、"))
+	}
+	return &model.Error{
+		Class: model.ErrToolFailed, Code: "not_found",
+		Message: fmt.Sprintf("找不到符号 %q", rel+"#"+name),
+		Hint:    hint,
+		Details: map[string]any{"target": rel + "#" + name, "file": rel, "functions": available},
+	}
+}
+
+// dirTarget 在 target 是目录时给出目录内的 Go 文件候选。
+func dirTarget(path string, children []string) error {
+	hint := "read_code 需要文件路径；用 search 列出目录内文件"
+	if len(children) > 0 {
+		hint = "该目录是 Go 包，请指定其中一个文件：" + strings.Join(children, "、")
+	}
+	return &model.Error{
+		Class: model.ErrToolInvalidArgs, Code: "invalid_args",
+		Message: fmt.Sprintf("%s 是目录，不能按文件读取", path),
+		Hint:    hint,
+		Details: map[string]any{"target": path, "isDir": true, "candidates": children},
+	}
+}
+
+// generatedFile 是生成文件被索引跳过时的错误。
+func generatedFile(rel string) error {
+	return &model.Error{
+		Class: model.ErrToolFailed, Code: "not_found",
+		Message: fmt.Sprintf("%s 是生成文件，已被 read_code 索引跳过", rel),
+		Hint:    "生成文件请用 read 直接读取",
+		Details: map[string]any{"target": rel, "generated": true},
+	}
+}
+
+// noFunctions 表示文件存在但没有任何函数/方法声明。
+func noFunctions(rel string) error {
+	return &model.Error{
+		Class: model.ErrToolFailed, Code: "not_found",
+		Message: fmt.Sprintf("%s 中没有函数或方法声明", rel),
+		Hint:    "该文件可能只有类型/变量/常量；用 read 查看完整内容",
+		Details: map[string]any{"target": rel},
+	}
+}
+
 // Closure 实现 Index：BFS 收集依赖函数，按发现顺序返回代码切片。
 func (s *symbolIndex) Closure(ctx context.Context, root Symbol, opt Options) ([]Snippet, error) {
 	if err := s.ensure(ctx); err != nil {
 		return nil, err
 	}
 	depth := opt.Depth
-	if depth <= 0 {
+	switch {
+	case opt.NoExpand:
+		depth = 0
+	case depth <= 0:
 		depth = defaultDepth
 	}
 	maxSymbols := opt.MaxSymbols
@@ -599,11 +690,7 @@ func (s *symbolIndex) Closure(ctx context.Context, root Symbol, opt Options) ([]
 		if !opt.IncludeTest && strings.HasSuffix(cur.fn.file.rel, "_test.go") {
 			continue
 		}
-		snippets = append(snippets, Snippet{
-			File: cur.fn.file.rel, Package: cur.fn.file.pkg,
-			Imports: append([]string(nil), cur.fn.file.imports...),
-			Code:    string(cur.fn.file.src[cur.fn.start:cur.fn.end]),
-		})
+		snippets = append(snippets, cur.fn.snippet())
 		if cur.depth >= depth {
 			continue
 		}
@@ -640,6 +727,197 @@ func (s *symbolIndex) Omitted() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return append([]string(nil), s.omitted...)
+}
+
+// Read 实现 Index：按 target 形态选择“文件函数清单”或“符号依赖闭包”。
+//
+//	target = path/to/file.go        → 文件内全部函数/方法（不展开依赖）
+//	target = path/to/file.go#Func   → 只返回该函数本体；显式 Expand 时才展开
+//	target = Func / pkg.Func / path:line → §10.6 的依赖闭包
+func (s *symbolIndex) Read(ctx context.Context, req Request) (Result, error) {
+	target := strings.TrimSpace(req.Target)
+	if target == "" {
+		return Result{}, invalidArgs("target 不能为空",
+			"使用文件路径、文件#函数、函数名、path:line 或 pkg.Function")
+	}
+	if err := s.ensure(ctx); err != nil {
+		return Result{}, err
+	}
+	if rel, ok := s.fileTarget(target); ok {
+		snippets, err := s.File(ctx, rel)
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{Mode: ModeFile, Target: target, File: rel, Snippets: snippets}, nil
+	}
+	root, err := s.Resolve(ctx, target)
+	if err != nil {
+		return Result{}, err
+	}
+	noExpand := strings.ContainsRune(target, '#') && !req.Expand
+	snippets, err := s.Closure(ctx, root, Options{
+		Depth:       req.Depth,
+		MaxSymbols:  req.MaxSymbols,
+		IncludeTest: strings.HasSuffix(root.File, "_test.go"),
+		NoExpand:    noExpand,
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	sym := root
+	return Result{
+		Mode: ModeSymbol, Target: target, Symbol: &sym,
+		Snippets: snippets, NoExpand: noExpand, Omitted: s.Omitted(),
+	}, nil
+}
+
+// File 返回某个 Go 文件内的全部函数/方法（声明顺序），不做依赖展开。
+func (s *symbolIndex) File(ctx context.Context, path string) ([]Snippet, error) {
+	if err := s.ensure(ctx); err != nil {
+		return nil, err
+	}
+	rel := s.relOf(path)
+	if rel == "" || rel == ".." || strings.HasPrefix(rel, "../") {
+		return nil, notFoundFile(path, nil)
+	}
+	abs := filepath.Join(s.work, filepath.FromSlash(rel))
+	if info, err := os.Stat(abs); err == nil && info.IsDir() {
+		s.mu.RLock()
+		children := s.indexedInDirLocked(rel)
+		s.mu.RUnlock()
+		return nil, dirTarget(path, children)
+	}
+
+	s.mu.RLock()
+	fi := s.files[rel]
+	parseErr := s.parseErr[rel]
+	generated := s.generated[rel]
+	var snippets []Snippet
+	if fi != nil {
+		snippets = make([]Snippet, 0, len(fi.funcs))
+		for _, fn := range fi.funcs {
+			snippets = append(snippets, fn.snippet())
+		}
+	}
+	candidates := s.similarFilesLocked(rel)
+	s.mu.RUnlock()
+
+	switch {
+	case parseErr != nil:
+		return nil, &model.Error{
+			Class: model.ErrToolFailed, Code: "parse_error",
+			Message: fmt.Sprintf("%s 解析失败：%v", rel, parseErr),
+			Hint:    "修复语法错误后重试",
+		}
+	case generated:
+		return nil, generatedFile(rel)
+	case fi == nil:
+		if !strings.EqualFold(filepath.Ext(rel), ".go") {
+			return nil, unsupportedLanguage(rel)
+		}
+		return nil, notFoundFile(rel, candidates)
+	case len(snippets) == 0:
+		return nil, noFunctions(rel)
+	}
+	return snippets, nil
+}
+
+// fileTarget 判断 target 是否指文件；返回 workspace 相对路径。
+// 路径形态（含 / 或 \）与 .go 结尾的 target 一律按文件处理，不回退到符号解析；
+// 裸名字默认按符号处理，只有磁盘上确实是目录时才按目录给出专用错误。
+func (s *symbolIndex) fileTarget(target string) (string, bool) {
+	if strings.ContainsRune(target, '#') {
+		return "", false
+	}
+	if _, _, ok := splitLineTarget(target); ok {
+		return "", false
+	}
+	rel := s.relOf(target)
+	if rel == "" || rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", false
+	}
+	if isFileLike(target) {
+		return rel, true
+	}
+	if info, err := os.Stat(filepath.Join(s.work, filepath.FromSlash(rel))); err == nil && info.IsDir() {
+		return rel, true
+	}
+	return "", false
+}
+
+func isFileLike(target string) bool {
+	if strings.ContainsAny(target, `/\`) {
+		return true
+	}
+	return strings.EqualFold(filepath.Ext(target), ".go")
+}
+
+// funcNamesOf 返回文件内函数/方法名（最多 n 个），用于 not_found 提示。
+func funcNamesOf(fi *fileInfo, n int) []string {
+	names := make([]string, 0, len(fi.funcs))
+	for _, fn := range fi.funcs {
+		if len(names) >= n {
+			break
+		}
+		names = append(names, fn.sym.Name)
+	}
+	return names
+}
+
+// indexedInDirLocked 返回目录下已索引的 Go 文件（调用方需持有读锁）。
+func (s *symbolIndex) indexedInDirLocked(rel string) []string {
+	out := make([]string, 0, 4)
+	for p := range s.files {
+		if filepath.ToSlash(filepath.Dir(p)) != rel {
+			continue
+		}
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	if len(out) > 8 {
+		out = out[:8]
+	}
+	return out
+}
+
+// similarFilesLocked 按文件名为未索引的 target 找候选（调用方需持有读锁）。
+func (s *symbolIndex) similarFilesLocked(rel string) []string {
+	base := strings.ToLower(filepath.Base(rel))
+	want := strings.TrimSuffix(base, ".go")
+	type candidate struct {
+		path  string
+		score int
+	}
+	var out []candidate
+	for p := range s.files {
+		name := strings.ToLower(filepath.Base(p))
+		score := 0
+		switch {
+		case name == base:
+			score = 100
+		case strings.TrimSuffix(name, ".go") == want:
+			score = 80
+		case want != "" && (strings.Contains(name, want) || strings.Contains(want, name)):
+			score = 50
+		}
+		if score > 0 {
+			out = append(out, candidate{path: p, score: score})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].score != out[j].score {
+			return out[i].score > out[j].score
+		}
+		return out[i].path < out[j].path
+	})
+	paths := make([]string, 0, 3)
+	for _, c := range out {
+		if len(paths) >= 3 {
+			break
+		}
+		paths = append(paths, c.path)
+	}
+	return paths
 }
 
 func (s *symbolIndex) references(fn *funcInfo) []*funcInfo {

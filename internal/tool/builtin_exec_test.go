@@ -255,3 +255,94 @@ func TestReadCodeToolFormatsClosure(t *testing.T) {
 		t.Fatalf("depth=1 不应包含 C: %s", text)
 	}
 }
+
+// TestReadCodeToolFileTarget 覆盖“传文件路径读函数”和“file#函数只取本体”。
+func TestReadCodeToolFileTarget(t *testing.T) {
+	env := newTestEnv(t, nil)
+	writeWorkspaceFile(t, env, "go.mod", "module example.com/demo\n\ngo 1.26\n")
+	writeWorkspaceFile(t, env, "demo.go",
+		"package demo\n\nfunc A() { B() }\n\nfunc B() {\n\tC()\n}\n\nfunc C() {}\n")
+	deps := env.deps()
+	deps.Index = readcode.NewIndex(env.view)
+	tk := NewToolkit(env.view, deps)
+
+	// 文件模式：列出该文件内全部函数，每个函数带 file:line 标题。
+	got := execCall(t, tk, model.NodeCode, "rc2", "read_code", map[string]any{"target": "demo.go"})
+	if !got.body.OK {
+		t.Fatalf("read_code(demo.go) = %+v", got)
+	}
+	if got.data["mode"] != "file" || got.data["file"] != "demo.go" {
+		t.Fatalf("data = %v", got.data)
+	}
+	if got.data["count"] != float64(3) || got.data["truncated"] != false {
+		t.Fatalf("count/truncated = %v/%v", got.data["count"], got.data["truncated"])
+	}
+	text := got.data["content"].(string)
+	for _, want := range []string{
+		"package demo", "demo.go:3", "demo.go:5", "demo.go:9",
+		"func A()", "func B()", "func C()",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("文件模式缺少 %q:\n%s", want, text)
+		}
+	}
+	if _, ok := got.data["text"]; ok {
+		t.Errorf("不应重复输出 text 字段: %v", got.data)
+	}
+
+	// file#函数：只返回该函数本体，不展开 A / C。
+	got = execCall(t, tk, model.NodeCode, "rc3", "read_code", map[string]any{"target": "demo.go#B"})
+	if !got.body.OK {
+		t.Fatalf("read_code(demo.go#B) = %+v", got)
+	}
+	if got.data["noExpand"] != true || got.data["count"] != float64(1) {
+		t.Fatalf("data = %v", got.data)
+	}
+	text = got.data["content"].(string)
+	if !strings.Contains(text, "demo.go:5") || !strings.Contains(text, "func B()") {
+		t.Fatalf("缺少本体: %s", text)
+	}
+	for _, unwanted := range []string{"func A()", "func C()"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("本体模式不应展开 %q:\n%s", unwanted, text)
+		}
+	}
+
+	// 显式 depth：从 file#函数 继续展开依赖。
+	got = execCall(t, tk, model.NodeCode, "rc4", "read_code", map[string]any{"target": "demo.go#B", "depth": 1})
+	if !got.body.OK {
+		t.Fatalf("read_code(demo.go#B, depth=1) = %+v", got)
+	}
+	text = got.data["content"].(string)
+	if !strings.Contains(text, "func C()") || strings.Contains(text, "func A()") {
+		t.Fatalf("depth=1 应从 B 展开到 C: %s", text)
+	}
+
+	// 文件不存在：not_found。
+	got = execCall(t, tk, model.NodeCode, "rc5", "read_code", map[string]any{"target": "nope.go"})
+	if got.body.OK {
+		t.Fatalf("不存在的文件应失败: %+v", got)
+	}
+	if got.body.Error == nil || got.body.Error.Code != "not_found" {
+		t.Fatalf("err = %+v", got.body.Error)
+	}
+}
+
+// TestFitSnippets 覆盖输出预算裁剪。
+func TestFitSnippets(t *testing.T) {
+	snippets := []readcode.Snippet{
+		{File: "a.go", Line: 1, Code: strings.Repeat("x", 100)},
+		{File: "a.go", Line: 2, Code: strings.Repeat("x", 100)},
+		{File: "a.go", Line: 3, Code: strings.Repeat("x", 100)},
+	}
+	kept, dropped := fitSnippets(snippets, 400, true)
+	if len(kept) != 2 || len(dropped) != 1 {
+		t.Fatalf("kept=%d dropped=%d", len(kept), len(dropped))
+	}
+	if dropped[0].Line != 3 {
+		t.Fatalf("应优先省略靠后的切片: %+v", dropped[0])
+	}
+	if kept2, dropped2 := fitSnippets(snippets, 1<<20, false); len(kept2) != 3 || len(dropped2) != 0 {
+		t.Fatalf("预算充足时不应裁剪: %d/%d", len(kept2), len(dropped2))
+	}
+}
