@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-07T12:41:52.649Z",
+  "generatedAt": "2026-11-25T15:35:49.797Z",
   "model": "deterministic",
-  "gitCommit": "5aeadb1",
-  "hash": "sha256:96ab1d3213bbf3582e1aac583b8a8b35c09b8e463a58365b40fb0c7ba2810333",
-  "fileCount": 136,
-  "bytesSent": 12475
+  "gitCommit": "7884f98",
+  "hash": "sha256:2d7357a51cefb04e9d02e34456cf833efc4e6bc8faa77c02374ec5f22a79968a",
+  "fileCount": 156,
+  "bytesSent": 12942
 }

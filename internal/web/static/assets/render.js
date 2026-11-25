@@ -1,7 +1,7 @@
 /* render.js — 会话头、turn、消息、工具卡、审批、摘要与右栏 */
 
 import {
-  el, badge, copyButton, tokens, duration, formatTime, relativeTime, truncate, json,
+  el, badge, copyButton, tokens, duration, formatTime, timeOnly, relativeTime, truncate, json,
 } from './util.js';
 import { renderMarkdown } from './markdown.js';
 import { renderDiff, diffStats } from './diff.js';
@@ -84,73 +84,150 @@ export function renderChat(view, ctx) {
 }
 
 function renderTurn(turn, ctx) {
-  const box = el('section', { class: 'turn', id: `turn-${turn.turn}` });
-  const collapsed = Boolean(ctx.ui.collapsedTurns && ctx.ui.collapsedTurns.has(turn.turn));
-  const head = el('div', { class: 'turn-head' }, [
-    el('span', { class: 'turn-title', text: turn.pseudo ? '会话初始化' : `第 ${turn.turn} 轮` }),
-    badge(turn.status || 'unknown', turn.status || ''),
-    turn.durationMs ? el('span', { text: duration(turn.durationMs) }) : null,
-    turn.usage ? el('span', { text: `in ${tokens(turn.usage.input)} / out ${tokens(turn.usage.output)}` }) : null,
-    turn.mode ? badge(turn.mode, `mode-${turn.mode}`) : null,
-    el('button', {
-      class: 'btn small ghost', type: 'button', text: collapsed ? '展开' : '收起',
-      onclick: (event) => {
-        event.stopPropagation();
-        if (!ctx.ui.collapsedTurns) ctx.ui.collapsedTurns = new Set();
-        if (ctx.ui.collapsedTurns.has(turn.turn)) ctx.ui.collapsedTurns.delete(turn.turn);
-        else ctx.ui.collapsedTurns.add(turn.turn);
-        box.querySelector('.turn-body').classList.toggle('collapsed');
-        event.target.textContent = ctx.ui.collapsedTurns.has(turn.turn) ? '展开' : '收起';
-      },
-    }),
-  ]);
-  box.appendChild(head);
+  const box = el('section', { class: 'turn chat-turn', id: `turn-${turn.turn}` });
+  const items = Array.isArray(turn.items) ? turn.items : [];
+  const userItem = items.find((item) => item.kind === 'user') || null;
+  const userText = userItem ? (userItem.text || '') : (turn.pseudo ? '' : (turn.input || ''));
+  const userTS = userItem ? userItem.ts : (turn.pseudo ? null : turn.startedAt);
 
-  const body = el('div', { class: 'turn-body' + (collapsed ? ' collapsed' : '') });
-  for (const item of turn.items || []) {
-    const node = renderItem(item, turn, ctx);
-    if (node) body.appendChild(node);
+  // 最后一次助手正文是本轮最终回答；其余助手消息和工具调用都归入可折叠执行过程。
+  let finalIndex = -1;
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i];
+    if (item.kind === 'assistant' && (item.text || item.ref || item.refMissing)) {
+      finalIndex = i;
+      break;
+    }
   }
-  if (!turn.pseudo) body.appendChild(renderTurnSummary(turn, ctx));
-  box.appendChild(body);
+  const finalItem = finalIndex >= 0 ? items[finalIndex] : null;
+  const processItems = items.filter((item, index) => item !== userItem && index !== finalIndex);
+
+  if (userText || userTS) {
+    box.appendChild(renderUserMessage(userText, userTS, ctx));
+    box.appendChild(el('div', { class: 'chat-divider' }));
+  }
+
+  const expandedTurns = ensureExpandedTurns(ctx);
+  const turnKey = `${turnViewID(ctx)}:${turn.turn}`;
+  const expanded = expandedTurns.has(turnKey);
+  const processID = `turn-process-${turn.turn}`;
+  const chevron = el('span', { class: 'turn-status-chevron', 'aria-hidden': 'true', text: expanded ? '▴' : '▾' });
+  const status = el('button', {
+    class: 'turn-status' + (expanded ? ' open' : ''),
+    type: 'button',
+    'aria-expanded': expanded ? 'true' : 'false',
+    'aria-controls': processID,
+  }, [
+    el('span', { class: `turn-status-dot ${turn.status || 'unknown'}`, 'aria-hidden': 'true' }),
+    el('span', { class: 'turn-status-label', text: turnStatusText(turn) }),
+    chevron,
+  ]);
+  box.appendChild(status);
+
+  const process = el('div', {
+    class: 'turn-process' + (expanded ? ' open' : ''),
+    id: processID,
+  });
+  if (processItems.length) {
+    process.appendChild(el('div', { class: 'turn-process-title', text: '执行过程' }));
+    for (const item of processItems) {
+      const node = renderProcessItem(item, turn, ctx);
+      if (node) process.appendChild(node);
+    }
+    const facts = renderTurnFacts(turn, ctx);
+    if (facts) process.appendChild(facts);
+  } else {
+    process.appendChild(el('div', { class: 'turn-process-empty', text: '本轮没有工具调用或中间步骤记录。' }));
+    const facts = renderTurnFacts(turn, ctx);
+    if (facts) process.appendChild(facts);
+  }
+  status.addEventListener('click', () => {
+    const open = !process.classList.contains('open');
+    process.classList.toggle('open', open);
+    status.classList.toggle('open', open);
+    status.setAttribute('aria-expanded', open ? 'true' : 'false');
+    chevron.textContent = open ? '▴' : '▾';
+    if (open) expandedTurns.add(turnKey);
+    else expandedTurns.delete(turnKey);
+  });
+  box.appendChild(process);
+
+  if (finalItem) box.appendChild(renderFinalAssistant(finalItem, turn, ctx));
   return box;
 }
 
-function renderItem(item, turn, ctx) {
+function ensureExpandedTurns(ctx) {
+  if (!ctx.ui.expandedTurns) ctx.ui.expandedTurns = new Set();
+  return ctx.ui.expandedTurns;
+}
+
+function renderUserMessage(text, ts, ctx) {
+  const wrap = el('div', { class: 'chat-user' });
+  if (text) wrap.appendChild(el('div', { class: 'chat-user-bubble', text }));
+  const meta = el('div', { class: 'chat-user-meta' });
+  if (ts) {
+    meta.appendChild(el('time', {
+      class: 'chat-time',
+      datetime: dateTimeAttr(ts),
+      text: timeOnly(ts, ctx.ui.timeMode),
+      title: formatTime(ts, ctx.ui.timeMode),
+    }));
+  }
+  if (text) meta.appendChild(copyButton(text, '复制', 'btn btn-ghost btn-xs chat-copy'));
+  wrap.appendChild(meta);
+  return wrap;
+}
+
+function renderFinalAssistant(item, turn, ctx) {
+  const wrap = el('div', { class: 'chat-assistant' });
+  if (item.refMissing) {
+    wrap.appendChild(el('div', { class: 'missing', text: '内容缺失（artifact 已删除）' }));
+  } else if (item.text) {
+    wrap.appendChild(renderMarkdown(item.text));
+  } else if (item.ref) {
+    wrap.appendChild(el('div', { class: 'missing', text: '正文未内联，请点开 artifact。' }));
+  }
+  if (item.refCut) {
+    wrap.appendChild(el('div', { class: 'warn-text' }, [
+      '内容较大，仅内联前 64 KiB。',
+      el('a', {
+        href: api.artifactURL(turnViewID(ctx), item.ref.name), target: '_blank',
+        rel: 'noopener noreferrer', text: '查看 artifact',
+      }),
+    ]));
+  }
+
+  const footer = el('div', { class: 'chat-assistant-footer' });
+  const copyValue = item.text || (item.ref && item.ref.name) || '';
+  if (copyValue) footer.appendChild(copyButton(copyValue, '复制', 'btn btn-ghost btn-xs chat-copy'));
+  const usage = turn.usage || {};
+  const totalTokens = (Number(usage.input) || 0) + (Number(usage.output) || 0);
+  const usageTitle = turn.usage
+    ? `输入 ${tokens(usage.input)} / 输出 ${tokens(usage.output)}${usage.cached ? ` / 缓存 ${tokens(usage.cached)}` : ''}`
+    : '未记录 token 用量';
+  footer.appendChild(el('span', { class: 'chat-usage', title: usageTitle, text: turn.usage ? `用量 ${tokens(totalTokens)} tok` : '用量未记录' }));
+  const outputTS = item.ts || turn.endedAt || turn.startedAt;
+  if (outputTS) {
+    footer.appendChild(el('time', {
+      class: 'chat-output-time',
+      datetime: dateTimeAttr(outputTS),
+      title: `输出时间 ${formatTime(outputTS, ctx.ui.timeMode)}`,
+      text: timeOnly(outputTS, ctx.ui.timeMode),
+    }));
+  }
+  wrap.appendChild(footer);
+  return wrap;
+}
+
+function renderProcessItem(item, turn, ctx) {
   switch (item.kind) {
-    case 'user':
-      return el('div', { class: 'msg user' }, [
-        el('div', { class: 'msg-head' }, [
-          el('span', { class: 'msg-role', text: '你' }),
-          el('span', { class: 'muted small', text: formatTime(item.ts, ctx.ui.timeMode) }),
-        ]),
-        el('div', { class: 'msg-bubble', text: item.text || '' }),
-      ]);
     case 'assistant': {
-      const content = el('div', { class: 'msg assistant' });
-      const head = el('div', { class: 'msg-head' }, [
-        el('span', { class: 'msg-role', text: '助手' }),
-        el('span', { class: 'muted small', text: formatTime(item.ts, ctx.ui.timeMode) }),
-        item.ref ? copyButton(item.ref.name, '复制引用') : null,
-      ]);
-      content.appendChild(head);
-      if (item.refMissing) {
-        content.appendChild(el('div', { class: 'missing', text: '内容缺失（artifact 已删除）' }));
-      } else if (item.text) {
-        content.appendChild(renderMarkdown(item.text));
-      } else if (item.ref) {
-        content.appendChild(el('div', { class: 'missing', text: '正文未内联，请点开 artifact。' }));
-      }
-      if (item.refCut) {
-        content.appendChild(el('div', { class: 'warn-text' }, [
-          '内容较大，仅内联前 64 KiB。',
-          el('a', {
-            href: api.artifactURL(turnViewID(ctx), item.ref.name), target: '_blank',
-            rel: 'noopener noreferrer', text: '查看 artifact',
-          }),
-        ]));
-      }
-      return content;
+      const wrap = el('div', { class: 'process-assistant' });
+      wrap.appendChild(el('div', { class: 'process-label', text: '助手中间输出' }));
+      if (item.refMissing) wrap.appendChild(el('div', { class: 'missing', text: '内容缺失（artifact 已删除）' }));
+      else if (item.text) wrap.appendChild(renderMarkdown(item.text));
+      else if (item.ref) wrap.appendChild(el('div', { class: 'missing', text: '正文未内联，请点开 artifact。' }));
+      return wrap;
     }
     case 'tool':
       return item.tool ? renderTool(item.tool, ctx) : null;
@@ -161,10 +238,86 @@ function renderItem(item, turn, ctx) {
     case 'error':
       return renderError(item.error, ctx);
     case 'notice':
-      return el('div', { class: 'muted small', text: item.notice || '' });
+      return el('div', { class: 'process-notice muted small', text: item.notice || '' });
     default:
       return null;
   }
+}
+
+function renderTurnFacts(turn, ctx) {
+  const wrap = el('div', { class: 'turn-facts' });
+  if (Array.isArray(turn.changed) && turn.changed.length) {
+    wrap.appendChild(el('div', { class: 'turn-fact' }, [
+      el('span', { class: 'process-label', text: '改动文件' }),
+      el('span', { class: 'code small', text: turn.changed.join(', ') }),
+    ]));
+  }
+  if (Array.isArray(turn.checks) && turn.checks.length) {
+    const list = el('ul', { class: 'check-list' });
+    for (const check of turn.checks) {
+      list.appendChild(el('li', { text: `${check.cmd || 'check'} · exit ${check.exitCode ?? '—'}` }));
+    }
+    wrap.appendChild(el('div', { class: 'turn-fact' }, [
+      el('span', { class: 'process-label', text: '验证命令' }),
+      list,
+    ]));
+  }
+  if (turn.planPath) {
+    wrap.appendChild(el('div', { class: 'card' }, [
+      el('div', { class: 'card-head' }, [
+        el('span', { text: '计划' }),
+        badge('plan', 'mode-plan'),
+      ]),
+      el('div', { class: 'card-body' }, [
+        el('div', { class: 'code small', text: turn.planPath }),
+        el('div', { class: 'tool-section' }, [
+          el('button', {
+            class: 'btn small', type: 'button', text: '查看计划',
+            onclick: () => ctx.onOpenPlan && ctx.onOpenPlan(),
+          }),
+          ' ',
+          copyButton(turn.planPath, '复制路径', 'btn small ghost'),
+        ]),
+      ]),
+    ]));
+  }
+  if (turn.summary) {
+    wrap.appendChild(el('div', { class: 'turn-fact' }, [
+      el('span', { class: 'process-label', text: '本轮摘要' }),
+      el('div', { class: 'small', text: turn.summary }),
+    ]));
+  }
+  return wrap.childElementCount ? wrap : null;
+}
+
+function turnStatusText(turn) {
+  const elapsed = turn.durationMs ? `，用时 ${humanDuration(turn.durationMs)}` : '';
+  if (turn.pseudo) return `会话初始化${elapsed}`;
+  switch (turn.status) {
+    case 'ok': return `已完成${elapsed}`;
+    case 'failed': return `执行失败${elapsed}`;
+    case 'interrupted': return `已中断${elapsed}`;
+    case 'running': return `执行中${elapsed}`;
+    default: return `状态未知${elapsed}`;
+  }
+}
+
+function humanDuration(ms) {
+  const value = Math.max(0, Number(ms) || 0);
+  if (value < 1000) return `${Math.round(value)}毫秒`;
+  const totalSeconds = Math.round(value / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}秒`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return seconds ? `${minutes}分${seconds}秒` : `${minutes}分`;
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return restMinutes ? `${hours}小时${restMinutes}分` : `${hours}小时`;
+}
+
+function dateTimeAttr(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
 }
 
 function turnViewID(ctx) {

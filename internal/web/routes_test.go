@@ -528,3 +528,32 @@ func str(value any) string {
 	raw, _ := json.Marshal(value)
 	return string(raw)
 }
+
+func TestRoutesChatLayoutAssets(t *testing.T) {
+	ts, _, _ := testServer(t)
+	for path, want := range map[string][]string{
+		"/assets/render.js": {
+			"chat-user-bubble", "chat-user-meta", "chat-divider", "turn-status",
+			"turn-process", "chat-assistant-footer", "expandedTurns", "renderMarkdown(item.text)",
+		},
+		"/assets/app.css": {
+			".chat-user-bubble", ".chat-divider", ".turn-status", ".turn-process", ".chat-assistant-footer",
+		},
+	} {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s status = %d", path, resp.StatusCode)
+		}
+		text := string(body)
+		for _, needle := range want {
+			if !strings.Contains(text, needle) {
+				t.Fatalf("%s missing chat layout contract %q", path, needle)
+			}
+		}
+	}
+}

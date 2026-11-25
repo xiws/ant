@@ -49,13 +49,13 @@ function loadUI() {
   const defaults = {
     theme: 'auto', density: 'standard', timeMode: 'local',
     rightOpen: true, rightTab: 'changes', sidebarCollapsed: false,
-    collapsedTurns: new Set(),
+    expandedTurns: new Set(),
     filePreview: null,
     trajDuration: 'actual',
   };
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    return { ...defaults, ...raw, collapsedTurns: new Set(), filePreview: null };
+    return { ...defaults, ...raw, expandedTurns: new Set(), filePreview: null };
   } catch (_) {
     return defaults;
   }

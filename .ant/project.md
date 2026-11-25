@@ -46,6 +46,8 @@ docs/16-traceability.md
 docs/17-adr.md
 docs/18-appendix.md
 docs/19-interfaces.md
+docs/20-web-serve.md
+docs/Technology.md
 go.mod
 internal/
 internal/agent/
@@ -69,6 +71,8 @@ internal/cli/prompter.go
 internal/cli/render.go
 internal/cli/render_test.go
 internal/cli/resume_test.go
+internal/cli/serve.go
+internal/cli/serve_test.go
 internal/cli/subcommands.go
 internal/config/
 internal/config/config.go
@@ -135,11 +139,7 @@ internal/readcode/index.go
 internal/readcode/index_test.go
 internal/readcode/readcode.go
 internal/session/
-internal/session/done_test.go
-internal/session/fsutil.go
-internal/session/lock.go
-internal/session/recover.go
-...（已省略 36 项）
+...（已省略 57 项）
 ```
 
 ## 入口
