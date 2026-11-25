@@ -9,6 +9,7 @@ ant [flags] [prompt...]
 ant new [flags] [prompt...]
 ant sessions [flags]
 ant show <session-id>
+ant export [session-id] [--format html|md] [-o path|-] [--events]
 ant init [--force]
 ant models
 ant config
@@ -30,6 +31,7 @@ ant help
 | `ant new -m plan [-p model]` | 新建 plan session | 无 prompt 时进入 REPL，由用户输入第一个任务 |
 | `ant sessions` | 列出当前 workspace 的 session | 支持 `--json`、`--limit`、`--mode`、`--status` |
 | `ant show <id>` | 查看单个 session 摘要 | 接受 ID 短前缀；显示 turns、usage、审批记录、产物路径；`--events` 查看事件流 |
+| `ant export [id]` | 导出完整调试链路 | 省略 id 时导出最近 session；`--format html\|md`；`-o -` 写 stdout；`--events` 附原始事件；默认写 session 目录的 `trace.html` |
 | `ant init [--force]` | 生成/重新生成项目上下文 | `--force` 忽略 hash |
 | `ant models` | 列出模型别名与能力 | 不显示密钥；标记默认模型与不可用模型 |
 | `ant config` | 打印合并后的配置 | 每个键标注来源（home/workspace/cli）；密钥打码 |
@@ -77,6 +79,10 @@ ID                       UPDATED   MODE   MODEL              TURNS  TOKENS  STAT
 | `--non-interactive` | 布尔 | 禁止任何提示；需要 ask/审批时退出码 4 |
 | `--json` | 布尔 | stdout 输出 NDJSON 事件；人类日志走 stderr |
 | `--log-level` | `error`\|`warn`\|`info`\|`debug` | 覆盖 `settings.log.level` |
+| `-v, --verbose` | 布尔 | 实时展示节点、请求/响应摘要、工具完整参数与结果预览 |
+| `--no-verbose` | 布尔 | 显式关闭详细输出，覆盖 `settings.ui.verbose` |
+| `-o, --output` | 路径或 `-` | `export` 输出文件；`-` 表示 stdout |
+| `--format` | `html`\|`md` | `export` 格式；缺省按 `-o` 扩展名推断 |
 | `--no-color` | 布尔 | 关闭颜色；同时尊重 `NO_COLOR` |
 | `-h, --help` | 布尔 | 显示帮助 |
 | `--version` | 布尔 | 等价 `ant version` |
@@ -129,10 +135,35 @@ cwd：/Users/me/project
 ## 3.6 输出与日志
 
 - 默认：模型文本、工具调用轨迹、最终摘要输出到 stdout；进度、警告、日志输出到 stderr。
-- 推理模型：`reasoning` 增量合并为一个 `[思考]` 块输出到 stderr，不逐 chunk 换行；模型正文结束或工具调用前自动收尾并补换行。
+- TTY 且颜色开启时：
+  - 模型正文交给 Glamour 渲染 Markdown（标题、列表、表格、代码高亮），并**按完整 Markdown 块流式输出**：段落遇到空行、代码围栏闭合即渲染，不等待整段回答。
+  - 思考、工具调用、工具结果、提示分别使用紫/蓝/绿/红/灰的带左色块（`▌`）样式；连续工具行不插空行，过程块与结果块之间留空行。只使用前景/背景色，不使用闪烁 SGR。
+  - 正文有 2 列缩进与 Markdown 排版，和贴左的过程块形成明显分界，长过程里也能快速定位答案。
+  - 代码围栏与行内代码原样保留；代码外的 `<div>`、`Vec<T>` 等尖括号内容按字面量显示（Glamour 默认会清洗 HTML，直接渲染会丢失）。
+
+```text
+▌ 思考
+▌ 先看 README 和 go.mod。
+
+▌ 工具 read README.md
+▌ 完成 read · 15ms
+
+  # 这是一个什么项目
+  `ant` 是一个 Go 语言实现的 AI Agent 框架。
+
+▌ 完成 · mode=ask · model=ornith-1.5:9b · 1m34s
+      节点：ask(9.3k in / 831 out)
+      tokens：in 9.3k / out 831 / cached 2.1k / reasoning 0
+      session：.ant/sessions/20261107-131015-5175f5
+```
+
+- 纯文本回退（非 TTY、`NO_COLOR`、`TERM=dumb` 或 `--no-color`）：正文原样输出 Markdown 源码，思考/工具退回 `[思考]`、`[tool]` 前缀，便于管道与日志消费。
+- 推理模型：`reasoning` 增量合并为一个思考块输出到 stderr，不逐 chunk 换行；模型正文结束或工具调用前自动收尾并补换行。
 - 工具轨迹：只展示关键参数（`command`/`path`/`target` 等，超长截断），不倾倒整段 JSON。
-- `--json`：stdout 只输出 NDJSON 事件（[§9.4](07-session.md#94-ndjson-输出)），人类可读信息全部转到 stderr。
-- 颜色：TTY 且未设置 `NO_COLOR`、`TERM != dumb` 时启用；`--no-color` 强制关闭。
+- `--json`：stdout 只输出 NDJSON 事件（[§9.4](07-session.md#94-ndjson-输出)），人类可读信息全部转到 stderr；`--verbose` 在 `--json` 下被忽略。
+- `--verbose`：在默认工具轨迹之外，额外展示节点 prompt 版本/hash/输入 artifact、每轮请求/响应摘要、工具完整参数和结果预览；完整结果仍以 artifact 路径与 `ant export` 为准。
+- `ant export`：离线查看完整链路，包含有效 prompt、请求消息、模型响应、工具调用/结果、节点输出与 usage；HTML 为单文件自包含报告。
+- 颜色：`ui.color` 取 `auto`/`always`/`never`；`auto` 要求 TTY、未设置 `NO_COLOR`、`TERM != dumb`，`--no-color` 等价 `never`。Markdown 主题默认 `dark`，浅色终端可设 `GLAMOUR_STYLE=light`。
 - 结束摘要至少包含：模式、模型、tokens（输入/输出/缓存/推理）、费用估算（如有定价）、耗时、改动文件、执行过的验证命令、session 路径。
 
 ## 3.7 信号与中断
@@ -166,6 +197,11 @@ ant --non-interactive --json "运行 go test ./..."
 # 查看历史
 ant sessions --limit 20
 ant show 20261030-094704
+
+# 调试：实时查看工具结果，然后导出完整链路
+ant new -m ask --verbose "解释 read_code 的符号解析流程"
+ant export 20261030-094704 --format html
+ant export -s 20261030-094704 --format md -o - > trace.md
 ```
 
 > **设计理由**：原始 CLI 只给了 5 条命令，没有回答“续哪个 session、`new` 无 prompt 怎么办、如何脚本化、退出码是什么”。补全后，人工使用保持极简，CI 使用有确定行为。

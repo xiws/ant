@@ -110,6 +110,7 @@ func (p *preparer) Prepare(ctx context.Context, in PrepareInput) (Prepared, erro
 			_ = p.sink.Emit(ctx, &model.Event{
 				Type: model.EventContextCompacted,
 				Node: in.Node,
+				Run:  model.RunFromContext(ctx),
 				Data: model.MustJSON(map[string]any{
 					"beforeTokens": before,
 					"afterTokens":  after,

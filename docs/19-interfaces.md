@@ -134,7 +134,8 @@ flowchart TD
 | `projectctx` | `Scanner` / `Hasher` / `Generator` | 扫描、hash、模型摘要 | `projectctx.*` | `projectctx.Builder` |
 | `logx` | `Logger` | 分级日志与打码 | `logx.logger` | 几乎所有模块 |
 | `logx` | `Sink` | 事件扇出（文件/NDJSON/日志） | `logx.*` | `cli` 组装 |
-| `cli` | `Renderer` | 文本/NDJSON/turn 摘要渲染 | `cli.renderText`、`cli.renderJSON` | `App` |
+| `trace` | `Build` / `Document` | 从 session 事件与 artifact 重建链路，渲染 HTML/Markdown | `trace.Build` | `cli.runExport` |
+| `cli` | `Renderer` | Markdown/纯文本/NDJSON/turn 摘要渲染 | `cli.renderText`、`cli.renderJSON` | `App` |
 
 > “生产实现”一列是**命名建议**（`包名.类型`），不是路径承诺；具体文件划分以 [§16.1](14-engineering.md#161-建议包结构) 为准。
 
@@ -409,6 +410,7 @@ type Event struct {
 	Turn int             `json:"turn,omitempty"`
 	Step string          `json:"step,omitempty"`
 	Node NodeName        `json:"node,omitempty"`
+	Run  string          `json:"run,omitempty"` // 节点运行实例 ID；并发 fanout 精确归组
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
@@ -788,6 +790,7 @@ type OpenOptions struct {
 	Model     string
 	Workspace string
 	Lock      bool // 新建/续默认加锁
+	ReadOnly  bool // 只读查看/导出：不取锁、不创建目录、不写 meta
 }
 
 type Session interface {
@@ -1067,13 +1070,40 @@ func NewToolkit(cfg config.View, deps Deps) *Toolkit
 package readcode
 
 type Index interface {
-	// Resolve 解析 target（path#Symbol / Symbol / path:line / pkg.Symbol），
+	// Read 是统一入口：文件/文件#函数默认只返回本体，
+	// 符号名/path:line/pkg.Function 按 §10.6 做依赖闭包。
+	Read(ctx context.Context, req Request) (Result, error)
+	// Resolve 解析符号 target（path#Symbol / Symbol / path:line / pkg.Symbol），
 	// 歧义返回 *model.Error{Code:"ambiguous_symbol"} 并附候选。
 	Resolve(ctx context.Context, target string) (Symbol, error)
 	// Closure 以符号为根做 BFS，返回按发现顺序排列的代码切片（§10.6）。
 	Closure(ctx context.Context, root Symbol, opt Options) ([]Snippet, error)
 	// Invalidate 在文件变化后丢弃缓存（session 内缓存）。
 	Invalidate(paths []string)
+}
+
+type Mode string
+
+const (
+	ModeFile   Mode = "file"   // 文件内函数清单，不展开依赖
+	ModeSymbol Mode = "symbol" // 符号本体或依赖闭包
+)
+
+type Request struct {
+	Target     string
+	Depth      int
+	MaxSymbols int
+	Expand     bool // 显式要求从 file#函数 展开依赖闭包
+}
+
+type Result struct {
+	Mode     Mode
+	Target   string
+	File     string   // ModeFile 时的文件
+	Symbol   *Symbol  // ModeSymbol 时的根符号
+	Snippets []Snippet
+	NoExpand bool     // 本次是否只返回函数本体
+	Omitted  []string // 依赖闭包因 maxSymbols 被截断的符号名
 }
 
 type Symbol struct {
@@ -1089,17 +1119,21 @@ type Options struct {
 	MaxSymbols int
 	IncludeTest bool
 	ModulePath  string
+	NoExpand    bool // 只返回根函数，不展开依赖
 }
 
 type Snippet struct {
 	File    string // workspace 相对路径
 	Package string
+	Name    string // 函数/方法名
+	Line    int    // 函数声明行
 	Imports []string
 	Code    string // 含紧邻文档注释
 }
 ```
 
-- `read_code` 工具类只做参数映射与输出格式化（`---` 分隔），不做解析逻辑（[§16.1](14-engineering.md#161-建议包结构) 要求可单测）。
+- `read_code` 工具类只做参数映射与输出格式化（`---` 分隔、输出预算裁剪），模式判定与解析逻辑都在 `readcode`，便于单测（[§16.1](14-engineering.md#161-建议包结构)）。
+- 文件/本体模式每个函数前输出 `file:line` 标题；依赖闭包沿用原始无行号格式。
 - 缓存按 session 生命周期；`Invalidate` 由 `edit`/`write` 成功后调用，避免读到旧符号。
 
 ## 21.10 `internal/approval`：审批与硬拒绝
@@ -1639,15 +1673,26 @@ func (a *App) Close() error
 
 // Renderer 是唯一接触终端输出的接口。
 type Renderer interface {
-	Delta(text string)                 // 流式文本
-	Reasoning(text string)             // 推理增量（合并为 [思考] 块）
-	ToolCall(name string, args []byte) // 只展示关键参数
+	Delta(text string)                 // 流式文本（TTY 下按 Markdown 块渲染）
+	Reasoning(text string)             // 推理增量（彩色思考块；纯文本回退 [思考]）
+	ToolCall(name string, args []byte) // 关键参数 + 彩色工具块
 	ToolResult(name string, ok bool, dur time.Duration)
 	Notice(msg string)
-	EndMessage() // 一段流式输出结束（补齐换行）
+	EndMessage() // 一段流式输出结束（补齐换行并 flush Markdown）
 	TurnSummary(r statemachine.TurnResult, u logx.UsageAggregator)
 }
+
+// traceRenderer 是 Renderer 的可选扩展（--verbose / ui.verbose）。
+// 只有 textRenderer 实现；jsonRenderer 不实现，因此 --json 下自动跳过。
+type traceRenderer interface {
+	NodeStart(NodeStartInfo)
+	ModelRequest(ModelRequestInfo)
+	ModelResponse(ModelResponseInfo)
+	ToolOutput(ToolOutputInfo)
+}
 ```
+
+**离线导出**：`internal/trace` 只依赖 `session.Reader` 与 `model`，不 import `cli`。`ant export` 用只读方式打开 session，把 `events.jsonl` + `artifacts/` 重建为 `trace.Document`，再渲染为单文件 HTML/Markdown。`--verbose` 的实时详情与 `ant export` 的完整报告共用同一份事件与 artifact，不额外抓取 provider HTTP 原文。
 
 **构造函数约定**：统一为 `New<Interface>`，返回接口而不是具体类型；除 `*config.Config`、`*provider.Router`、`*provider.Client`、`*cli.App` 外不导出具体实现，避免调用方绕过接口。
 
@@ -2134,7 +2179,7 @@ flowchart TD
 | 新节点 | 实现 `agent.Node`（通常内嵌 `baseNode`）+ 在 `Graph` 引用 | 5 个节点；新增须同步模式图与输出契约 |
 | 新事件类型 | `model.EventType` + `session` 忽略未知类型并 warning | 字段只增不改（[§9.9](07-session.md#99-schema-版本与迁移)） |
 | 外部 UI / CI | 实现 `model.EventSink` 挂到 `logx.Multi` | `--json` 已提供 |
-| 快照加速恢复 | 在 `Recoverer` 实现内优先读 `snapshot.json` 再折叠增量（接口不变） | 不在 v1（[§9.10](07-session.md#910-v1-不做快照)） |
+| 快照加速恢复 | 在 `Recoverer` 实现内优先读 `snapshot.json` 再折叠增量（接口不变） | 不在 v1（[§9.11](07-session.md#911-v1-不做快照)） |
 | 存储后端替换 | 实现 `session.Store`/`Session` | v1 仅文件系统 |
 
 **兼容规则**：

@@ -7,10 +7,10 @@
 | 文档状态 | 已实现（v1.4 一期只读；`internal/web`、`internal/session/archive.go`、`internal/cli/serve.go`；前端 daisyUI + htmx + Alpine.js） |
 | 目标版本 | v1.4 |
 | 需求编号 | `R-WEB-<序号>` |
-| 决策编号 | D46–D50（暂记于本文 §22.13） |
+| 决策编号 | D48–D52（已同步至 [ADR](17-adr.md) §19） |
 | 关联章节 | [§3 CLI](01-cli.md)、[§4 配置](02-config.md)、[§9 Session](07-session.md)、[§10 工具](08-tools.md)、[§15 可观测性](13-observability.md)、[§16 工程约束](14-engineering.md)、[§21 接口](19-interfaces.md) |
 
-> **编号说明**：本文件是第 20 号补充模块，正文采用 §22 编号，避免重排既有 §1–§21 与大量交叉引用；阅读顺序上放在 [§21](19-interfaces.md) 之后。D46–D50 先记录在本文，后续合并进 [ADR](17-adr.md) 时只需搬运，不改变语义。
+> **编号说明**：本文件是第 20 号补充模块，正文采用 §22 编号，避免重排既有 §1–§21 与大量交叉引用；阅读顺序上放在 [§21](19-interfaces.md) 之后。D48–D52 与 [ADR](17-adr.md) 保持一致；其中 D46/D47 是主线已有的终端渲染与调试可见性决策。
 
 ## 22.1 背景与目标
 
@@ -1001,7 +1001,7 @@ SSE changed
 | `internal/cli/app.go` | `New` 在 `version`/`help` 之后、`loadConfig` 之前处理 `serve`；`Run` 分发 `runServe`；`Run` 的 ctx 取消→退出码 3 逻辑对 `serve` 特判；信号增加 `SIGTERM`；增加 `homeDirOverride`/`env`/`cfgOverride` 字段；增加 `homeDir()` helper |
 | `README.md` | 模块索引增加第 20 行；结构说明从“20 个模块（0–19）”改为“20 个模块 + 补充模块 20” |
 | `docs/01-cli.md` | 命令表增加 `ant serve`（建议同步） |
-| `docs/17-adr.md` | 合并 D46–D50（建议同步） |
+| `docs/17-adr.md` | 合并 D48–D52（已同步） |
 | `docs/16-traceability.md` | 增加 R-WEB 追溯行（建议同步） |
 
 ### 22.8.3 明确不新增
@@ -1459,11 +1459,11 @@ Cross-Origin-Resource-Policy: same-origin
 
 | ID | 决策 | 主要理由 | 未采用的备选 |
 | --- | --- | --- | --- |
-| D46 | `ant serve` 一期**只读**：只展示历史，不发消息、不审批、不新建 | 不取 session 锁、无写接口、无 CSRF、无审批桥；历史是需求核心；可快速交付 | 一步做完整交互（锁冲突、审批超时、断线重连复杂）；桌面端（跨平台成本高） |
-| D47 | **无账号 + 只监听回环**；不加登录页、不加 Cookie 身份 | 本地单用户；账号对本地只读没有安全收益；避免“登录墙”与密钥托管 | URL token（可作为多用户主机的可选二期）；OAuth/账号（违背需求）；远程访问（无 TLS/认证，不做） |
-| D48 | 事件投影，**不建数据库/索引** | `events.jsonl` 已是事实来源（[D18](17-adr.md#19-设计决策记录adr)）；只读投影无同步问题；与现有恢复/审计共用数据 | SQLite 索引（依赖、双写、迁移）；预生成 snapshot（版本/失效复杂） |
-| D49 | 前端**零构建**：原生 ES Modules + 本地 vendor（daisyUI/htmx/Alpine）+ Go `embed` | 单二进制、无 Node 构建依赖、离线可用；daisyUI 提供视觉组件，htmx 负责服务端片段，Alpine 负责局部外壳状态 | React/Vite（构建链、依赖、包体）；全量服务端模板（复杂轨迹/差异化渲染成本高） |
-| D50 | **单 workspace + home 白名单**，不做跨项目扫描 | 与 §9.8 一致；隐私与性能可控；避免把 home 变成任意文件服务器 | 工作区切换器（扫描磁盘）；多 workspace 聚合（隐私/权限复杂） |
+| D48 | `ant serve` 一期**只读**：只展示历史，不发消息、不审批、不新建 | 不取 session 锁、无写接口、无 CSRF、无审批桥；历史是需求核心；可快速交付 | 一步做完整交互（锁冲突、审批超时、断线重连复杂）；桌面端（跨平台成本高） |
+| D49 | **无账号 + 只监听回环**；不加登录页、不加 Cookie 身份 | 本地单用户；账号对本地只读没有安全收益；避免“登录墙”与密钥托管 | URL token（可作为多用户主机的可选二期）；OAuth/账号（违背需求）；远程访问（无 TLS/认证，不做） |
+| D50 | 事件投影，**不建数据库/索引** | `events.jsonl` 已是事实来源（[D18](17-adr.md#19-设计决策记录adr)）；只读投影无同步问题；与现有恢复/审计共用数据 | SQLite 索引（依赖、双写、迁移）；预生成 snapshot（版本/失效复杂） |
+| D51 | 前端**零构建**：原生 ES Modules + 本地 vendor（daisyUI/htmx/Alpine）+ Go `embed` | 单二进制、无 Node 构建依赖、离线可用；daisyUI 提供视觉组件，htmx 负责服务端片段，Alpine 负责局部外壳状态 | React/Vite（构建链、依赖、包体）；全量服务端模板（复杂轨迹/差异化渲染成本高） |
+| D52 | **单 workspace + home 白名单**，不做跨项目扫描 | 与 §9.8 一致；隐私与性能可控；避免把 home 变成任意文件服务器 | 工作区切换器（扫描磁盘）；多 workspace 聚合（隐私/权限复杂） |
 
 ### 22.13.1 备选方案对比
 

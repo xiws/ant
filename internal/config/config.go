@@ -33,6 +33,8 @@ type Overrides struct {
 	NonInteractive bool
 	LogLevel       string
 	NoColor        bool
+	Verbose        bool
+	VerboseSet     bool
 	// NodeModels 是 --node-model 的解析结果：node → alias。
 	NodeModels map[string]string
 }
@@ -110,7 +112,8 @@ type LogSettings struct {
 }
 
 type UISettings struct {
-	Color string `json:"color"`
+	Color   string `json:"color"`
+	Verbose bool   `json:"verbose"`
 }
 
 type ApprovalSettings struct {

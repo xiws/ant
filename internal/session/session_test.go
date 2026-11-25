@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -825,5 +826,48 @@ func TestEventsMalformedMiddleLine(t *testing.T) {
 	}
 	if state.LastSeq != 2 {
 		t.Fatalf("LastSeq = %d, want 2 (meta may have been reset by rewritten log)", state.LastSeq)
+	}
+}
+
+func TestReadOnlyOpenDoesNotWriteMeta(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	store := NewStoreWithClock(dir, clock)
+
+	sess, opened := mustOpen(t, store, OpenOptions{Create: true, Mode: model.ModeAsk, Model: "m", Workspace: dir, Lock: true})
+	emitData(t, sess, model.EventSessionCreated, 0, "", "", map[string]any{"id": opened.ID})
+	if err := sess.Close(); err != nil {
+		t.Fatal(err)
+	}
+	metaPath := filepath.Join(testSessionDir(dir, opened.ID), "meta.json")
+	before, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Hour)
+
+	ro, _ := mustOpen(t, store, OpenOptions{ID: opened.ID, ReadOnly: true})
+	if err := ro.UpdateMeta(context.Background(), func(m *Meta) error { m.Title = "should-not-write"; return nil }); err == nil {
+		t.Fatal("read-only UpdateMeta should fail")
+	}
+	if err := ro.Emit(context.Background(), &model.Event{Type: model.EventUsage, Data: model.MustJSON(model.Usage{})}); err == nil {
+		t.Fatal("read-only Emit should fail")
+	}
+	if err := ro.Close(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("read-only Close rewrote meta.json:\nbefore=%s\nafter=%s", before, after)
+	}
+	if _, _, err := store.Open(context.Background(), OpenOptions{ID: opened.ID, ReadOnly: true, Lock: true}); err == nil {
+		t.Fatal("ReadOnly+Lock should fail")
+	}
+	if _, _, err := store.Open(context.Background(), OpenOptions{Create: true, ReadOnly: true}); err == nil {
+		t.Fatal("ReadOnly+Create should fail")
 	}
 }

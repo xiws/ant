@@ -41,3 +41,6 @@ bin/
 .ant/sessions/
 .ant/project.lock
 ant
+.codewhale
+
+#Tailwind CSS + HTMX + Alpine.js

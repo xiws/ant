@@ -29,7 +29,7 @@ type ToolSpec struct {
 7. 审批（如需要，[§12.3](10-security.md#123-审批分级)）。
 8. 在超时与取消上下文中执行。
 9. 截断/清理输出，必要时写 artifact（[§10.3](#103-输出截断与-artifact)）。
-10. 写 `tool_call`/`tool_result` 事件。
+10. 写 `tool_call`/`tool_result` 事件；`tool_result` 同时带 `name`，便于终端与导出标注工具。
 11. 返回一条 `role:"tool"` 消息，`tool_call_id` 与请求一致。
 
 **返回格式**（tool message 的 `content` 是 JSON 字符串；`data` 的结构由各工具定义）：
@@ -170,7 +170,12 @@ type ToolSpec struct {
 
 ## 10.6 `read_code`
 
-**用途**：从某个方法/函数出发，按调用关系收集用户自己写的依赖方法，输出精简代码切片。原始需求的 `readCode` 即此工具。
+**用途**：读取 Go 代码切片，两种模式。
+
+- **文件模式**：target 是文件路径 → 返回该文件内全部函数/方法（声明顺序），不展开依赖。
+- **符号模式**：target 是函数名/pkg.Function/path:line → 按调用关系收集用户自己写的依赖方法，输出精简代码切片；target 是 `path#Symbol` → 只返回该函数本体。
+
+原始需求的 `readCode` 即符号模式。
 
 ```json
 {
@@ -178,7 +183,7 @@ type ToolSpec struct {
   "properties": {
     "target": {
       "type": "string",
-      "description": "path#Symbol、Symbol、path:line 或 pkg.Symbol"
+      "description": "文件路径（列出该文件全部函数）、文件路径#函数（只取该函数）、函数名、path:line 或 pkg.Function（按依赖展开）"
     },
     "depth": { "type": "integer", "minimum": 1, "maximum": 6 },
     "maxSymbols": { "type": "integer", "minimum": 1, "maximum": 100 }
@@ -196,10 +201,11 @@ type ToolSpec struct {
    - 函数/方法 → 名称、接收者类型、位置、AST；
    - 类型 → 名称、位置。
 3. **解析 target**：
-   - `path#Symbol`：在指定文件的包内找符号；
+   - `path`（含 `/` 或 `\`，或以 `.go` 结尾）：**文件模式**，返回该文件内的函数/方法，不展开依赖；找不到时报 `not_found` 并给相似文件；是目录时报 `invalid_args` 并列出目录内 Go 文件；
+   - `path#Symbol`：只返回该文件的这个函数本体（不退化成同目录/同包）；文件内没有该函数时，提示该文件可用的函数名；
    - `Symbol`：全局查找；同名多处 → `ambiguous_symbol` 并列出候选（文件、包、行）；
    - `path:line`：找该行所在的函数/方法；
-   - `pkg.Symbol`：按包名限定。
+   - `pkg.Symbol`：按包名限定（包级函数与方法同名时优先包级函数）。
 4. **判定“用户代码”**：import 路径以 module path 前缀开头 → 内部；标准库/第三方/vendor → 排除。生成文件（含 `// Code generated ... DO NOT EDIT.`）跳过并在输出末尾说明。
 5. **遍历依赖**：从入口函数 AST 中提取：
    - 同包函数调用；
@@ -207,7 +213,7 @@ type ToolSpec struct {
    - 方法调用：通过接收者类型解析到内部方法；
    - 函数值引用（同名标识符）。
    使用 BFS，发现顺序即输出顺序；循环依赖去重；接口方法/动态派发无法静态解析时跳过并记录。
-6. **限制**：`depth` 默认 3，`maxSymbols` 默认 50；内部先按符号数截断，回传模型的最终上限仍是 `maxToolOutputBytes`（默认 16 KB）；超限时列出被省略的符号名。
+6. **限制**：`depth` 默认 3，`maxSymbols` 默认 50；内部先按符号数截断，回传模型的最终上限仍是 `maxToolOutputBytes`（默认 16 KB）；超限时列出被省略的符号名。文件模式不展开依赖，因此 `depth`/`maxSymbols` 不生效；输出超出字节预算时按声明顺序保留靠前的函数，并提示用 `path#函数名` 单独读取其余函数。
 7. **输出**：严格按原始需求格式：
 
 ```text
@@ -233,13 +239,36 @@ func Test(x int64) int64 {
 
 - 每个文件块：workspace 相对路径、`package` 子句、完整 import 块、函数/方法源码（含紧邻的文档注释）。
 - 块之间：两个换行 + `---` + 换行。
-- 不输出行号（对齐原始格式，节省 token）；需要行号时用 `read`。
+- 符号模式的依赖闭包不输出行号（对齐原始格式，节省 token）；需要行号时用 `read`。
+- 文件模式与 `path#Symbol` 本体模式：每个函数前加 `file:line` 标题，函数体原样保留，便于定位与后续 `read` 续读。
+
+```text
+internal/readcode/index.go
+package readcode
+import (
+	"context"
+	"go/ast"
+)
+
+internal/readcode/index.go:306
+func (s *symbolIndex) Resolve(ctx context.Context, target string) (Symbol, error) {
+	...
+}
+
+internal/readcode/index.go:425
+func (s *symbolIndex) relOf(path string) string {
+	...
+}
+```
 
 **边界与错误**：
 
 - 非 Go 文件/非 Go 项目：`unsupported_language`，提示使用 `read`/`search`。
 - 解析失败：返回 `file:line: 解析错误`，不返回半份代码。
-- 符号未找到：`not_found` + 同包相似符号建议。
+- 文件不存在：`not_found` + 相似文件建议；目录：`invalid_args` + 目录内 Go 文件候选。
+- 生成文件（`// Code generated ... DO NOT EDIT.`）：`not_found` 并说明被索引跳过，提示用 `read`。
+- 文件内没有函数/方法声明：`not_found`，提示该文件可能只有类型/变量/常量。
+- 符号未找到：`not_found` + 同包相似符号建议（`path#Symbol` 时给该文件可用函数名）。
 - 依赖图过大：截断并说明；模型可提高 `depth` 或分多次读取。
 - 只展开函数/方法，不展开结构体/类型定义；需要类型细节用 `read`。
 - 只读，不修改文件。

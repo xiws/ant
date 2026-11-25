@@ -509,6 +509,10 @@ func (c *Config) applyCLI(o Overrides) {
 		c.settings.UI.Color = "never"
 		c.origins["ui.color"] = OriginCLI
 	}
+	if o.VerboseSet {
+		c.settings.UI.Verbose = o.Verbose
+		c.origins["ui.verbose"] = OriginCLI
+	}
 	c.settings.Yes = o.Yes
 	c.settings.NonInteractive = o.NonInteractive
 }

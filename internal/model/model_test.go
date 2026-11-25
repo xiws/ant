@@ -82,3 +82,28 @@ func TestEventSinkFunc(t *testing.T) {
 		t.Fatal("sink did not receive event")
 	}
 }
+
+func TestEventRunRoundTripAndContext(t *testing.T) {
+	ctx := WithRun(context.Background(), "run-1")
+	if got := RunFromContext(ctx); got != "run-1" {
+		t.Fatalf("RunFromContext = %q", got)
+	}
+	if got := RunFromContext(context.Background()); got != "" {
+		t.Fatalf("empty context Run = %q", got)
+	}
+	ev := Event{Seq: 1, TS: time.Now().UTC(), Type: EventMessage, Run: "run-1", Data: MustJSON(map[string]string{"role": "tool"})}
+	b, err := json.Marshal(ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"run":"run-1"`) {
+		t.Fatalf("run missing in JSON: %s", b)
+	}
+	var back Event
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Run != "run-1" {
+		t.Fatalf("Run round-trip = %q", back.Run)
+	}
+}

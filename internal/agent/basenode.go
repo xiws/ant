@@ -49,6 +49,10 @@ func (n *baseNode) Run(ctx context.Context, in NodeInput) (NodeOutput, error) {
 		}
 	}
 
+	// 每次 Run 生成唯一 run ID（时间戳 + 原子序号），并写入 context。
+	// 同一次运行的 node/model/tool/message 事件共享该 ID，供 trace 精确归组。
+	runCtx := model.WithRun(nodeCtx, n.nextArtifact("run", ""))
+
 	tools := []model.ToolSpec(nil)
 	if n.deps.ToolRegistry != nil && res.Capabilities.SupportsTools {
 		tools = n.deps.ToolRegistry.Specs(n.spec.Name)
@@ -89,7 +93,7 @@ func (n *baseNode) Run(ctx context.Context, in NodeInput) (NodeOutput, error) {
 		if userMsg.Content != "" {
 			pinned = append(pinned, userMsg)
 		}
-		prepared, perr := n.deps.Context.Prepare(nodeCtx, ctxmgr.PrepareInput{
+		prepared, perr := n.deps.Context.Prepare(runCtx, ctxmgr.PrepareInput{
 			Node:    n.spec.Name,
 			Cap:     res.Capabilities,
 			Pricing: res.Pricing,
@@ -104,7 +108,7 @@ func (n *baseNode) Run(ctx context.Context, in NodeInput) (NodeOutput, error) {
 		}
 		summary = prepared.Summary
 		recent := stripSummaryPlaceholder(prepared.Messages)
-		bundle, berr := n.deps.Prompt.Assemble(nodeCtx, prompt.Request{
+		bundle, berr := n.deps.Prompt.Assemble(runCtx, prompt.Request{
 			Node:    n.spec.Name,
 			Mode:    in.Mode,
 			Project: n.projectDoc(),
@@ -119,7 +123,7 @@ func (n *baseNode) Run(ctx context.Context, in NodeInput) (NodeOutput, error) {
 		promptHash = bundle.Meta.PromptHash
 
 		if !started {
-			if err := n.emitNodeStarted(nodeCtx, in, res, bundle, tools); err != nil {
+			if err := n.emitNodeStarted(runCtx, in, res, bundle, tools); err != nil {
 				return n.partial(usage, toolCalls, changed), err
 			}
 			started = true
@@ -137,7 +141,7 @@ func (n *baseNode) Run(ctx context.Context, in NodeInput) (NodeOutput, error) {
 			req.ToolChoice = "none"
 		}
 		streamed := false
-		chatCtx := model.WithNode(nodeCtx, n.spec.Name)
+		chatCtx := model.WithNode(runCtx, n.spec.Name)
 		resp, cerr := n.deps.Provider.Chat(chatCtx, req, func(d provider.Delta) error {
 			if d.Text != "" {
 				streamed = true
@@ -148,7 +152,7 @@ func (n *baseNode) Run(ctx context.Context, in NodeInput) (NodeOutput, error) {
 			return n.partial(usage, toolCalls, changed), cerr
 		}
 		usage = usage.Add(resp.Usage)
-		if err := n.emitUsage(nodeCtx, resp.Usage); err != nil {
+		if err := n.emitUsage(runCtx, resp.Usage); err != nil {
 			return n.partial(usage, toolCalls, changed), err
 		}
 
@@ -158,7 +162,7 @@ func (n *baseNode) Run(ctx context.Context, in NodeInput) (NodeOutput, error) {
 			n.deps.OnText(assistant.Content)
 		}
 		if len(assistant.ToolCalls) == 0 {
-			if err := n.emitMessage(nodeCtx, assistant); err != nil {
+			if err := n.emitMessage(runCtx, assistant); err != nil {
 				return n.partial(usage, toolCalls, changed), err
 			}
 			finalText = assistant.Content
@@ -196,13 +200,13 @@ func (n *baseNode) Run(ctx context.Context, in NodeInput) (NodeOutput, error) {
 			conversation = append(conversation, userMsg)
 		}
 		conversation = append(conversation, assistant)
-		if err := n.emitMessage(nodeCtx, assistant); err != nil {
+		if err := n.emitMessage(runCtx, assistant); err != nil {
 			return n.partial(usage, toolCalls, changed), err
 		}
 
 		var toolMsgs []model.Message
 		if n.deps.Runtime != nil {
-			toolMsgs, err = n.deps.Runtime.ExecuteBatch(nodeCtx, n.spec.Name, assistant.ToolCalls)
+			toolMsgs, err = n.deps.Runtime.ExecuteBatch(runCtx, n.spec.Name, assistant.ToolCalls)
 			if err != nil {
 				return n.partial(usage, toolCalls, changed), err
 			}
@@ -235,7 +239,7 @@ func (n *baseNode) Run(ctx context.Context, in NodeInput) (NodeOutput, error) {
 				}
 			}
 			conversation = append(conversation, m)
-			if err := n.emitMessage(nodeCtx, m); err != nil {
+			if err := n.emitMessage(runCtx, m); err != nil {
 				return n.partial(usage, toolCalls, changed), err
 			}
 		}
@@ -260,7 +264,7 @@ func (n *baseNode) Run(ctx context.Context, in NodeInput) (NodeOutput, error) {
 		userMsg = model.Message{}
 	}
 
-	parsed, perr := n.spec.Contract.Parse(nodeCtx, finalText)
+	parsed, perr := n.spec.Contract.Parse(runCtx, finalText)
 	if perr != nil {
 		if n.spec.Name == model.NodeVerifier {
 			// 修复请求仍失败时按 pass=false 处理并保留原文（§7.4.1）。
@@ -297,7 +301,7 @@ func (n *baseNode) Run(ctx context.Context, in NodeInput) (NodeOutput, error) {
 		Changed:    changed,
 		Checks:     checks,
 	}
-	if err := n.emitStepCompleted(nodeCtx, in, out, promptHash); err != nil {
+	if err := n.emitStepCompleted(runCtx, in, out, promptHash); err != nil {
 		return out, err
 	}
 	return out, nil
@@ -475,6 +479,7 @@ func (n *baseNode) emitNodeStarted(ctx context.Context, in NodeInput, res provid
 		Type: model.EventNodeStarted,
 		Node: n.spec.Name,
 		Step: n.stepName(in.Mode),
+		Run:  model.RunFromContext(ctx),
 		Data: model.MustJSON(map[string]any{
 			"node": n.spec.Name, "model": res.Alias, "provider": res.ProviderName,
 			"promptVersion": bundle.Meta.NodePromptVersion, "promptHash": bundle.Meta.PromptHash,
@@ -488,6 +493,7 @@ func (n *baseNode) emitUsage(ctx context.Context, u model.Usage) error {
 	return n.deps.Recorder.Emit(ctx, &model.Event{
 		Type: model.EventUsage,
 		Node: n.spec.Name,
+		Run:  model.RunFromContext(ctx),
 		Data: model.MustJSON(u),
 	})
 }
@@ -510,7 +516,7 @@ func (n *baseNode) emitMessage(ctx context.Context, msg model.Message) error {
 	if msg.ToolCallID != "" {
 		data["toolCallID"] = msg.ToolCallID
 	}
-	return n.deps.Recorder.Emit(ctx, &model.Event{Type: model.EventMessage, Node: n.spec.Name, Data: model.MustJSON(data)})
+	return n.deps.Recorder.Emit(ctx, &model.Event{Type: model.EventMessage, Node: n.spec.Name, Run: model.RunFromContext(ctx), Data: model.MustJSON(data)})
 }
 
 func (n *baseNode) emitStepCompleted(ctx context.Context, in NodeInput, out NodeOutput, promptHash string) error {
@@ -534,6 +540,7 @@ func (n *baseNode) emitStepCompleted(ctx context.Context, in NodeInput, out Node
 		Type: model.EventStepCompleted,
 		Node: n.spec.Name,
 		Step: n.stepName(in.Mode),
+		Run:  model.RunFromContext(ctx),
 		Data: model.MustJSON(map[string]any{
 			"node": n.spec.Name, "status": status, "outputHash": model.HashRefString(out.Text),
 			"outputRef": outputRef, "usage": out.Usage, "promptHash": promptHash,

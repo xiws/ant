@@ -235,6 +235,9 @@ func eventLogFields(ev *model.Event, withData bool) []any {
 	if ev.Step != "" {
 		kv = append(kv, "step", ev.Step)
 	}
+	if ev.Run != "" {
+		kv = append(kv, "run", ev.Run)
+	}
 	if withData && len(ev.Data) > 0 {
 		kv = append(kv, "data", summarizeEventData(ev.Data))
 	}

@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 版本 | v1.3（设计规格；生产实现已完成；文档按模块拆分） |
+| 版本 | v1.4（设计规格；生产实现已完成；文档按模块拆分） |
 | 仓库 | `github.com/xiws/ant` |
 | 基线 | Go 1.26.8；macOS / Linux / Windows |
 | 文档目的 | 把原始需求补全为可直接指导实现、可验收的设计规格 |
@@ -12,7 +12,7 @@
 | 规范用语 | **必须** = MUST，**应该** = SHOULD，**可以** = MAY |
 | 结构 | 本 README 为索引；正文按 20 个模块（0–19）拆分在 `docs/`，另有补充模块 20（本地 Web 服务） |
 
-本文档是原始 README 的补全版，也是后续实现的唯一事实来源。v1.3 的**抽象层、组合根与生产实现均已落地**（`internal/`）：可编译、可测试，真实 `openai-completions` 适配器、全部内置工具、Go 符号索引、plan 落盘与项目上下文模型摘要均可用。仅 `otter` 因缺少公开协议按设计保留 `adapter_not_implemented`（§5.6）。
+本文档是原始 README 的补全版，也是后续实现的唯一事实来源。v1.4 的**抽象层、组合根与生产实现均已落地**（`internal/`）：可编译、可测试，真实 `openai-completions` 适配器、全部内置工具、Go 符号索引、plan 落盘与项目上下文模型摘要均可用。仅 `otter` 因缺少公开协议按设计保留 `adapter_not_implemented`（§5.6）。
 
 ## 安全提示
 
@@ -39,7 +39,7 @@
 | 14 | 工程实现约束 | [14-engineering.md](docs/14-engineering.md) | 包结构、依赖、跨平台、CI、版本 |
 | 15 | 测试策略与验收 | [15-testing.md](docs/15-testing.md) | 单测、fake provider、e2e、验收 |
 | 16 | 需求追溯矩阵 | [16-traceability.md](docs/16-traceability.md) | 原需求 → 章节 → 决策 |
-| 17 | 设计决策记录（ADR） | [17-adr.md](docs/17-adr.md) | D1–D45 设计决策记录 |
+| 17 | 设计决策记录（ADR） | [17-adr.md](docs/17-adr.md) | D1–D52 设计决策记录 |
 | 18 | 附录 | [18-appendix.md](docs/18-appendix.md) | 配置示例、错误码、CLI 帮助、已知问题 |
 | 19 | 模块接口与串联（§21） | [19-interfaces.md](docs/19-interfaces.md) | 各模块对外接口、组合根装配、七条调用链与 10 张图 |
 | 20 | 本地 Web 服务（`ant serve`，§22，补充） | [20-web-serve.md](docs/20-web-serve.md) | 参考页面拆解、无账号本地 Web、会话/轨迹/改动展示、API 与文件清单 |
@@ -69,7 +69,7 @@
 | D32 | 文件工具全部 workspace 约束 + 审批 + 硬拒绝 |
 | D43 | 模块间以内部接口对接，组合根集中装配 |
 
-完整 D1–D45 见 [ADR](docs/17-adr.md)；D46–D50 见 [本地 Web 服务](docs/20-web-serve.md#2213-设计决策与权衡)。
+完整 D1–D52 见 [ADR](docs/17-adr.md)；其中 D48–D52 对应[本地 Web 服务](docs/20-web-serve.md#2213-设计决策与权衡)。
 
 ## 编号与导航
 
@@ -113,7 +113,8 @@
 | `internal/statemachine` | 已实现：4 张内置图、fan-out/join、轮次、Plan gate、plan.md 落盘、Resume（Done 跳过已完成 step）、退出码 |
 | `internal/projectctx` | 已实现：扫描、hash 失效、确定性骨架、模型摘要与确定性回落、标记保护、原子写与锁 |
 | `internal/logx` | 已实现：分级日志、打码、NDJSON 扇出、用量聚合 |
-| `internal/cli` | 已实现：参数/子命令/REPL（含 `/new`）/`Renderer`/`Prompter`/组合根与退出码映射 |
+| `internal/trace` | 已实现：从事件/artifact 重建完整链路，生成单文件 HTML 或 Markdown（`ant export`） |
+| `internal/cli` | 已实现：参数/子命令/REPL（含 `/new`）/`Renderer`/`Prompter`/组合根与退出码映射；TTY 下 Glamour Markdown + 彩色过程块，纯文本/NDJSON 回退；`--verbose` 实时链路详情与 `ant export` 离线报告 |
 | `cmd/ant` | 已实现：薄入口 `os.Exit(cli.Run(...))` |
 
 实现期对 [§21](docs/19-interfaces.md) 的增量（均为字段级、见 [D44](docs/17-adr.md#19-设计决策记录adr)）：
@@ -124,7 +125,7 @@
 
 已知限制：`otter` 适配器因原始需求未给出协议，v1 只保留 `adapter_not_implemented` 语义；其余模块均已实现。
 
-验证命令（本机无需网络）：
+验证命令（首次构建需 `go mod download` 拉取 Glamour 依赖）：
 
 ```bash
 go build ./...

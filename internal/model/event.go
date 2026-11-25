@@ -42,6 +42,7 @@ type Event struct {
 	Turn int             `json:"turn,omitempty"`
 	Step string          `json:"step,omitempty"`
 	Node NodeName        `json:"node,omitempty"`
+	Run  string          `json:"run,omitempty"`
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
@@ -53,6 +54,7 @@ type eventWire struct {
 	Turn int             `json:"turn,omitempty"`
 	Step string          `json:"step,omitempty"`
 	Node NodeName        `json:"node,omitempty"`
+	Run  string          `json:"run,omitempty"`
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
@@ -63,7 +65,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 		ts = e.TS.UTC().Format(EventTSLayout)
 	}
 	return json.Marshal(eventWire{
-		Seq: e.Seq, TS: ts, Type: e.Type, Turn: e.Turn, Step: e.Step, Node: e.Node, Data: e.Data,
+		Seq: e.Seq, TS: ts, Type: e.Type, Turn: e.Turn, Step: e.Step, Node: e.Node, Run: e.Run, Data: e.Data,
 	})
 }
 
@@ -73,7 +75,7 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &w); err != nil {
 		return err
 	}
-	e.Seq, e.Type, e.Turn, e.Step, e.Node, e.Data = w.Seq, w.Type, w.Turn, w.Step, w.Node, w.Data
+	e.Seq, e.Type, e.Turn, e.Step, e.Node, e.Run, e.Data = w.Seq, w.Type, w.Turn, w.Step, w.Node, w.Run, w.Data
 	e.TS = time.Time{}
 	if w.TS != "" {
 		if t, err := time.Parse(time.RFC3339Nano, w.TS); err == nil {

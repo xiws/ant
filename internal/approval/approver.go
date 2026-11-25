@@ -252,6 +252,7 @@ func (a *approver) requested(ctx context.Context, req Request) error {
 	return a.sink.Emit(ctx, &model.Event{
 		Type: model.EventApprovalRequested,
 		Node: req.Node,
+		Run:  model.RunFromContext(ctx),
 		Data: model.MustJSON(map[string]any{
 			"class":   req.Class,
 			"node":    req.Node,
@@ -275,6 +276,7 @@ func (a *approver) resolved(ctx context.Context, req Request, dec Decision, sour
 	return a.sink.Emit(ctx, &model.Event{
 		Type: model.EventApprovalResolved,
 		Node: req.Node,
+		Run:  model.RunFromContext(ctx),
 		Data: model.MustJSON(map[string]any{
 			"class":    req.Class,
 			"decision": decision,
