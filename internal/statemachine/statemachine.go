@@ -22,6 +22,7 @@ type Engine interface {
 type TurnInput struct {
 	UserInput string
 	History   []model.Message
+	Turn      int // 绝对 turn 号；0 表示由引擎自增（CLI 单进程默认）
 	Round     int // 续跑时的当前轮次；新 turn 为 0
 	// Summary 是 session 折叠出的压缩摘要；引擎转交 NodeInput.SessionSummary。
 	Summary string

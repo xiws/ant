@@ -80,35 +80,40 @@
       <div class="empty-state"><p>加载中…</p></div>
     </div>
 
-    <section id="composer" class="composer-shell" aria-label="终端命令输入区">
+    <section id="composer" class="composer-shell" aria-label="任务输入区">
       <div class="composer-card">
         <div class="composer-top">
           <label class="composer-mode">
             <span class="composer-mode-glyph" aria-hidden="true">⌁</span>
-            <select class="select select-xs select-ghost" x-model="composerMode" aria-label="选择 mode">
+            <select class="select select-xs select-ghost" x-model="composerMode" aria-label="选择 mode" :disabled="running || submitting">
               <template x-for="mode in modes" :key="mode">
                 <option :value="mode" x-text="mode"></option>
               </template>
             </select>
           </label>
-          <span class="badge badge-ghost badge-sm composer-readonly">只读 · 复制终端命令</span>
+          <span class="badge badge-ghost badge-sm composer-readonly" x-text="running ? '执行中 · SSE 实时更新' : '本地执行 · SSE 实时更新'">本地执行 · SSE 实时更新</span>
         </div>
         <textarea id="composer-text" class="composer-input" x-model="draft" rows="3"
-                  placeholder="描述你想要构建的内容，/ 调用指令，@ 文件或对话"
-                  @keydown.meta.enter.prevent="copyCommand()"
-                  @keydown.ctrl.enter.prevent="copyCommand()"></textarea>
+                  placeholder="描述你想要构建的内容，Enter 发送，Shift+Enter 换行"
+                  :disabled="submitting"
+                  @keydown="composerKeydown($event)"></textarea>
         <div class="composer-bottom">
           <span class="composer-hint" x-text="composerHint()"></span>
           <div class="composer-tools">
-            <select class="select select-xs select-ghost composer-model" x-model="composerModel" aria-label="选择模型">
+            <select class="select select-xs select-ghost composer-model" x-model="composerModel" aria-label="选择模型" :disabled="running || submitting">
               <option value="">默认模型</option>
               <template x-for="model in modelOptions" :key="model">
                 <option :value="model" x-text="model"></option>
               </template>
             </select>
             <button class="btn btn-primary btn-circle btn-sm composer-send" type="button"
-                    :disabled="!draft.trim()" @click="copyCommand()"
-                    title="复制终端命令" aria-label="复制终端命令">↑</button>
+                    x-show="!running" :disabled="!draft.trim() || submitting"
+                    @click="submitTurn()" :title="submitting ? '正在提交' : '发送并执行'"
+                    aria-label="发送并执行">↑</button>
+            <button class="btn btn-error btn-circle btn-sm composer-send" type="button"
+                    x-show="running" :disabled="stopping" @click="stopTurn()"
+                    :title="stopping ? '正在停止' : '停止当前 turn'"
+                    aria-label="停止当前 turn">■</button>
           </div>
         </div>
       </div>

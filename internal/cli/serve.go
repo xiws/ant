@@ -30,17 +30,25 @@ func (a *App) runServe(ctx context.Context) int {
 		fmt.Fprintf(a.stdio.Err, "[ant] 配置告警：%s\n", formatError(cfgErr))
 	}
 
-	// 2. 只读归档 + Web 服务。
+	// 2. 历史归档 + 可交互执行器 + Web 服务。
 	archive := session.NewArchive(wd)
 	logger := a.serveLogger(cfg)
+	executor := &webExecutor{
+		workDir: wd,
+		homeDir: a.homeDir(),
+		env:     a.stdio.Env,
+		cfg:     cfg,
+		clock:   a.clock,
+	}
 	srv, err := web.New(web.Deps{
-		WorkDir: wd,
-		HomeDir: a.homeDir(),
-		Config:  cfg,
-		Archive: archive,
-		Clock:   a.clock,
-		Logger:  logger,
-		Version: version.Version,
+		WorkDir:  wd,
+		HomeDir:  a.homeDir(),
+		Config:   cfg,
+		Archive:  archive,
+		Executor: executor,
+		Clock:    a.clock,
+		Logger:   logger,
+		Version:  version.Version,
 	})
 	if err != nil {
 		fmt.Fprintln(a.stdio.Err, "[ant] serve 初始化失败："+formatError(err))
@@ -67,7 +75,7 @@ func (a *App) runServe(ctx context.Context) int {
 	fmt.Fprintf(a.stdio.Out, "[ant] serve: %s\n", url)
 	fmt.Fprintf(a.stdio.Out, "      workspace: %s\n", wd)
 	fmt.Fprintf(a.stdio.Out, "      home:      %s\n", a.homeDir())
-	fmt.Fprintln(a.stdio.Out, "      只读模式 · 无需登录 · Ctrl-C 停止")
+	fmt.Fprintln(a.stdio.Out, "      本地交互模式 · 无需登录 · Ctrl-C 停止")
 
 	if a.opts.open {
 		if err := openBrowser(url); err != nil {

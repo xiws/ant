@@ -1,4 +1,4 @@
-/* ant serve — 零构建本地只读 Web（docs/20-web-serve.md §22.7.6） */
+/* ant serve — 零构建本地 Web（docs/20-web-serve.md §22.7.6） */
 
 :root {
   color-scheme: light dark;
@@ -941,3 +941,43 @@ html[data-theme] .app-main { background: var(--bg); }
 .app-shell.sidebar-collapsed .sidebar-scroll { padding: 4px 6px; }
 .app-shell.sidebar-collapsed .session-item { grid-template-columns: 1fr; justify-items: center; padding: 9px 4px; }
 .app-shell.sidebar-collapsed .session-item .status-dot { margin-top: 0; }
+
+/* ---------- 交互执行：实时输出与审批/ask ---------- */
+
+.live-prompt {
+  width: min(860px, calc(100% - 32px));
+  margin: 12px auto 0;
+  border-color: color-mix(in srgb, var(--warn) 48%, var(--border-color));
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--warn) 12%, transparent);
+}
+.live-prompt .card-body { display: flex; flex-direction: column; gap: 8px; }
+.live-prompt-title { font-weight: 600; }
+.live-prompt-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.live-prompt-input { width: 100%; min-height: 3.2rem; resize: vertical; }
+.streaming-assistant {
+  width: min(860px, calc(100% - 32px));
+  margin: 12px auto 22px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border-color));
+  border-radius: 14px;
+  background: var(--panel);
+}
+.streaming-label {
+  margin-bottom: 6px;
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.streaming-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+.streaming-reasoning {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--muted);
+  font-family: var(--code-font);
+  font-size: 12px;
+}

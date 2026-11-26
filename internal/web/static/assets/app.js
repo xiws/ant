@@ -1,6 +1,6 @@
 /* app.js — ant serve UI 启动、Alpine 状态、hash 路由、htmx 片段刷新与 SSE。 */
 
-import { el, copyText, toast } from './util.js';
+import { el, toast } from './util.js';
 import { api, ApiError } from './api.js';
 import {
   renderSessionHeader, renderChat, renderEmptyMain, renderLoading, renderErrorCard,
@@ -32,6 +32,10 @@ const state = {
   streamId: null,
   streamTimer: null,
   reloading: false,
+  runActive: false,
+  runID: null,
+  streaming: null,
+  pendingPrompt: null,
 };
 
 const dom = {
@@ -83,6 +87,9 @@ function registerAlpine() {
     composerModel: '',
     draft: '',
     hasSession: false,
+    submitting: false,
+    running: false,
+    stopping: false,
     sidebarCollapsed: state.ui.sidebarCollapsed,
     rightOpen: state.ui.rightOpen,
     mobileSidebarOpen: false,
@@ -110,19 +117,76 @@ function registerAlpine() {
       if (input) input.focus();
     },
 
-    copyCommand() {
-      const command = buildTerminalCommand(this);
-      if (!command) return;
-      copyText(command);
-      toast('已复制终端命令');
+    composerKeydown(event) {
+      if (!event || event.isComposing) return;
+      if (event.key !== 'Enter') return;
+      if (event.shiftKey && !(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      void this.submitTurn();
+    },
+
+    async submitTurn() {
+      if (this.submitting || this.running) return;
+      const text = String(this.draft || '').trim();
+      if (!text) return;
+      this.submitting = true;
+      try {
+        const payload = {
+          input: text,
+          mode: this.composerMode || 'ask',
+          model: this.composerModel || '',
+        };
+        const existingID = state.route.name === 'session' ? state.route.id : '';
+        let result;
+        if (existingID && state.session) {
+          result = await api.startTurn(existingID, payload);
+          state.runActive = true;
+          state.runID = result.runId || null;
+          state.pendingPrompt = null;
+          this.running = true;
+          this.stopping = false;
+          if (state.streamId !== existingID) openStream(existingID);
+          scheduleSessionRefresh(existingID, 50);
+        } else {
+          result = await api.startSession(payload);
+          state.runActive = true;
+          state.runID = result.runId || null;
+          state.streaming = null;
+          state.pendingPrompt = null;
+          this.running = true;
+          this.stopping = false;
+          go(`#/sessions/${encodeURIComponent(result.sessionId)}`);
+        }
+        this.draft = '';
+        requestSessionListRefresh();
+        toast('已开始执行');
+      } catch (error) {
+        toast(error.message || '提交失败');
+      } finally {
+        this.submitting = false;
+      }
+    },
+
+    async stopTurn() {
+      const id = state.route.name === 'session' ? state.route.id : '';
+      if (!id || this.stopping) return;
+      this.stopping = true;
+      try {
+        const result = await api.cancelTurn(id);
+        if (result && result.cancelled) toast('已请求停止');
+        else toast('当前没有正在执行的 turn');
+      } catch (error) {
+        toast(error.message || '停止失败');
+        this.stopping = false;
+      }
     },
 
     composerHint() {
+      if (this.running) return this.stopping ? '正在停止…' : '执行中：SSE 实时更新，可点击停止';
+      if (this.submitting) return '正在提交…';
       const text = String(this.draft || '').trim();
-      if (!text) {
-        return this.hasSession ? '输入内容后复制续跑命令（Ctrl/⌘+Enter）' : '输入内容后复制新建会话命令（Ctrl/⌘+Enter）';
-      }
-      return this.hasSession ? '将复制续跑命令，在终端执行' : '将复制新建会话命令，在终端执行';
+      if (!text) return this.hasSession ? '输入内容后直接续跑（Enter 发送，Shift+Enter 换行）' : '输入内容后直接新建并执行（Enter 发送，Shift+Enter 换行）';
+      return this.hasSession ? 'Enter 直接续跑，Shift+Enter 换行' : 'Enter 新建 session 并直接执行，Shift+Enter 换行';
     },
   }));
 }
@@ -231,6 +295,8 @@ function syncComposerForRoute() {
   if (!shell) return;
   const config = state.config || {};
   shell.hasSession = Boolean(state.session && state.route.name === 'session');
+  shell.running = Boolean(state.runActive);
+  if (!shell.running) shell.stopping = false;
   if (state.session && state.route.name === 'session') {
     shell.composerMode = state.session.meta.mode || shell.composerMode || config.defaultMode || 'ask';
     shell.composerModel = state.session.meta.model || shell.composerModel || config.defaultModel || '';
@@ -239,6 +305,20 @@ function syncComposerForRoute() {
     shell.composerModel = config.defaultModel || shell.composerModel || '';
   }
   syncShell();
+}
+
+function scheduleSessionRefresh(id, delay = 120) {
+  if (!id) return;
+  clearTimeout(state.streamTimer);
+  state.streamTimer = setTimeout(() => {
+    if (state.reloading) {
+      scheduleSessionRefresh(id, 120);
+      return;
+    }
+    void loadSession(id, { preserveScroll: true, ifNoneMatch: true });
+    void refreshSessions();
+    requestSessionListRefresh();
+  }, delay);
 }
 
 function setupHTMX() {
@@ -371,6 +451,10 @@ async function onHash() {
     state.error = null;
     state.etag = '';
     state.turnLimit = 50;
+    state.runActive = false;
+    state.runID = null;
+    state.streaming = null;
+    state.pendingPrompt = null;
     syncComposerForRoute();
     markActiveSession();
     renderMain();
@@ -385,6 +469,10 @@ async function onHash() {
     state.etag = '';
     state.turnLimit = 50;
     state.ui.filePreview = null;
+    state.runActive = false;
+    state.runID = null;
+    state.streaming = null;
+    state.pendingPrompt = null;
     await loadSession(route.id, { preserveScroll: false });
     return;
   }
@@ -412,6 +500,7 @@ async function loadSession(id, options = {}) {
     state.error = null;
     state.loading = false;
     state.streamDown = false;
+    state.runActive = Boolean(state.session.meta && state.session.meta.status === 'running');
     ensureRightTab();
     syncComposerForRoute();
     markActiveSession();
@@ -450,12 +539,55 @@ function openStream(id) {
         requestSessionListRefresh();
         return;
       }
-      clearTimeout(state.streamTimer);
-      state.streamTimer = setTimeout(() => {
-        void loadSession(id, { preserveScroll: true, ifNoneMatch: true });
-        void refreshSessions();
-        requestSessionListRefresh();
-      }, 150);
+      scheduleSessionRefresh(id, 150);
+    },
+    onStatus: (payload) => {
+      if (!payload || (payload.sessionId && payload.sessionId !== id)) return;
+      state.runActive = Boolean(payload.running);
+      state.runID = payload.runId || null;
+      if (state.shell) {
+        state.shell.running = state.runActive;
+        if (!state.runActive) state.shell.stopping = false;
+      }
+      if (!payload.running && state.route.id === id) {
+        state.streaming = null;
+        state.pendingPrompt = null;
+        scheduleSessionRefresh(id, 50);
+      }
+    },
+    onEvent: () => scheduleSessionRefresh(id, 80),
+    onDelta: (payload) => appendLiveDelta(payload),
+    onReasoning: (payload) => appendLiveDelta(payload),
+    onApproval: (payload) => {
+      if (!payload || state.route.id !== id) return;
+      state.pendingPrompt = payload;
+      renderMain();
+      if (dom.scroll) dom.scroll.scrollTop = 0;
+      toast('执行需要审批');
+    },
+    onAsk: (payload) => {
+      if (!payload || state.route.id !== id) return;
+      state.pendingPrompt = payload;
+      renderMain();
+      if (dom.scroll) dom.scroll.scrollTop = 0;
+      toast('执行需要你的回答');
+    },
+    onRunDone: (payload) => {
+      state.runActive = false;
+      state.runID = null;
+      state.streaming = null;
+      state.pendingPrompt = null;
+      if (state.shell) { state.shell.running = false; state.shell.stopping = false; }
+      const status = payload && payload.status ? payload.status : 'ok';
+      toast(status === 'ok' ? '执行完成' : status === 'interrupted' ? '执行已停止' : '执行结束');
+      scheduleSessionRefresh(id, 30);
+    },
+    onRunError: (payload) => {
+      state.runActive = false;
+      state.runID = null;
+      if (state.shell) { state.shell.running = false; state.shell.stopping = false; }
+      toast(payload && payload.message ? payload.message : '执行失败');
+      scheduleSessionRefresh(id, 30);
     },
     onError: () => { state.streamDown = true; updateStreamBanner(); },
     onOpen: () => { if (state.streamDown) { state.streamDown = false; updateStreamBanner(); } },
@@ -466,6 +598,35 @@ function closeStream() {
   clearTimeout(state.streamTimer);
   if (state.stream) { state.stream.close(); state.stream = null; }
   state.streamId = null;
+}
+
+function appendLiveDelta(payload) {
+  if (!payload || !payload.text && !payload.reasoning) return;
+  if (!state.streaming) state.streaming = { runId: payload.runId || '', text: '', reasoning: '' };
+  if (payload.text) state.streaming.text += payload.text;
+  if (payload.reasoning) state.streaming.reasoning += payload.reasoning;
+  updateLiveAssistant();
+}
+
+function updateLiveAssistant() {
+  const stream = state.streaming;
+  if (!stream) return;
+  const scroll = dom.scroll;
+  const nearBottom = scroll ? (scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight) < 100 : true;
+  let wrap = document.getElementById('live-assistant');
+  if (!wrap && dom.main) {
+    renderMain();
+    wrap = document.getElementById('live-assistant');
+  }
+  if (!wrap) return;
+  const body = wrap.querySelector('[data-role="live-text"]');
+  if (body) body.textContent = stream.text || '正在等待模型输出…';
+  const reasoning = wrap.querySelector('[data-role="live-reasoning"]');
+  if (reasoning) {
+    reasoning.textContent = stream.reasoning || '';
+    reasoning.parentElement.classList.toggle('hidden', !stream.reasoning);
+  }
+  if (nearBottom && dom.scroll) dom.scroll.scrollTop = dom.scroll.scrollHeight;
 }
 
 /* ---------- 中栏渲染 ---------- */
@@ -513,6 +674,7 @@ function renderMain() {
   const scroll = el('div', { class: 'scroll-area' });
   scroll.appendChild(streamBanner());
   scroll.appendChild(renderWarnings(view));
+  scroll.appendChild(renderPendingPrompt());
   if (route.view === 'trajectory') {
     scroll.appendChild(renderTrajectory(view, ctx));
     if (state.pendingInspect && ctx.inspectTool) {
@@ -522,6 +684,9 @@ function renderMain() {
     }
   } else {
     scroll.appendChild(renderChat(view, ctx));
+    if (state.streaming && (state.streaming.text || state.streaming.reasoning)) {
+      scroll.appendChild(renderLiveAssistant());
+    }
   }
   nodes.push(scroll);
   mount(dom.main, nodes);
@@ -541,6 +706,109 @@ function streamBanner() {
 
 function updateStreamBanner() {
   if (dom.streamBanner) dom.streamBanner.classList.toggle('hidden', !state.streamDown);
+}
+
+function renderPendingPrompt() {
+  const prompt = state.pendingPrompt;
+  if (!prompt) return el('div', { class: 'hidden' });
+  if (prompt.kind === 'approval') {
+    const card = el('div', { class: 'card live-prompt', role: 'alertdialog', 'aria-label': '需要审批' }, [
+      el('div', { class: 'card-head' }, [
+        el('span', { text: '需要审批' }),
+        el('span', { class: 'badge interrupted', text: prompt.class || 'approval' }),
+      ]),
+      el('div', { class: 'card-body' }, [
+        el('div', { class: 'live-prompt-title', text: prompt.title || '执行操作需要你的确认' }),
+        prompt.detail ? el('pre', { class: 'output', text: prompt.detail }) : null,
+        prompt.cwd ? el('div', { class: 'muted small', text: `cwd：${prompt.cwd}` }) : null,
+        prompt.reason ? el('div', { class: 'muted small', text: `原因：${prompt.reason}` }) : null,
+        el('div', { class: 'live-prompt-actions' }, [
+          el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '允许一次', onclick: () => void resolveApprovalPrompt('allow_once') }),
+          el('button', { class: 'btn btn-sm', type: 'button', text: '本会话允许', onclick: () => void resolveApprovalPrompt('allow_session') }),
+          el('button', { class: 'btn btn-sm btn-error', type: 'button', text: '拒绝', onclick: () => void resolveApprovalPrompt('deny') }),
+        ]),
+      ]),
+    ]);
+    return card;
+  }
+  if (prompt.kind === 'ask') {
+    const body = el('div', { class: 'card-body' }, [
+      el('div', { class: 'live-prompt-title', text: prompt.question || '需要你的回答' }),
+    ]);
+    const options = Array.isArray(prompt.options) ? prompt.options : [];
+    if (options.length) {
+      const actions = el('div', { class: 'live-prompt-actions' });
+      for (const option of options) {
+        actions.appendChild(el('button', {
+          class: 'btn btn-sm', type: 'button', text: option.label || option.id,
+          title: option.description || '',
+          onclick: () => void resolveAskPrompt(option.id || '', option.label || ''),
+        }));
+      }
+      body.appendChild(actions);
+    }
+    if (prompt.allowFreeText) {
+      const input = el('textarea', { class: 'textarea textarea-bordered live-prompt-input', rows: '2', placeholder: '输入回答，Ctrl/⌘+Enter 提交' });
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          void resolveAskPrompt('', input.value);
+        }
+      });
+      body.appendChild(input);
+      body.appendChild(el('button', {
+        class: 'btn btn-sm btn-primary', type: 'button', text: '提交回答',
+        onclick: () => void resolveAskPrompt('', input.value),
+      }));
+    }
+    return el('div', { class: 'card live-prompt', role: 'alertdialog', 'aria-label': '需要回答' }, [
+      el('div', { class: 'card-head' }, [el('span', { text: '需要你确认' })]),
+      body,
+    ]);
+  }
+  return el('div', { class: 'hidden' });
+}
+
+function renderLiveAssistant() {
+  const stream = state.streaming || { text: '', reasoning: '' };
+  const wrap = el('div', { class: 'chat-assistant streaming-assistant', id: 'live-assistant' });
+  wrap.appendChild(el('div', { class: 'streaming-label', text: '实时输出' }));
+  const reasoning = el('details', { class: stream.reasoning ? '' : 'hidden' }, [
+    el('summary', { class: 'small muted', text: '思考过程' }),
+    el('pre', { class: 'streaming-reasoning', dataset: { role: 'live-reasoning' }, text: stream.reasoning || '' }),
+  ]);
+  wrap.appendChild(reasoning);
+  wrap.appendChild(el('div', {
+    class: 'streaming-text', dataset: { role: 'live-text' },
+    text: stream.text || '正在等待模型输出…',
+  }));
+  return wrap;
+}
+
+async function resolveApprovalPrompt(decision) {
+  const prompt = state.pendingPrompt;
+  if (!prompt || !prompt.id) return;
+  try {
+    await api.approve(prompt.id, decision);
+    state.pendingPrompt = null;
+    renderMain();
+    toast(decision === 'deny' ? '已拒绝' : '已允许');
+  } catch (error) {
+    toast(error.message || '提交审批失败');
+  }
+}
+
+async function resolveAskPrompt(selectedId, text) {
+  const prompt = state.pendingPrompt;
+  if (!prompt || !prompt.id) return;
+  try {
+    await api.answerAsk(prompt.id, { selectedId, text });
+    state.pendingPrompt = null;
+    renderMain();
+    toast('已提交回答');
+  } catch (error) {
+    toast(error.message || '提交回答失败');
+  }
 }
 
 function renderWarnings(view) {
@@ -730,28 +998,6 @@ function focusTurn(turn) {
 function focusComposer() {
   const input = document.getElementById('composer-text');
   if (input) input.focus();
-}
-
-function buildTerminalCommand(shell) {
-  const draft = String(shell && shell.draft || '').trim();
-  if (!draft) return '';
-  const mode = shell.composerMode || 'ask';
-  const model = shell.composerModel || '';
-  const args = ['ant'];
-  if (state.route.id && state.session) {
-    args.push('-s', state.route.id);
-    args.push('-m', mode);
-    if (model) args.push('-p', model);
-  } else {
-    args.push('new', '-m', mode);
-    if (model) args.push('-p', model);
-  }
-  args.push(quoteShellArg(draft));
-  return args.join(' ');
-}
-
-function quoteShellArg(value) {
-  return `'${String(value).replaceAll("'", `'\\''`)}'`;
 }
 
 /* ---------- 快捷键 ---------- */

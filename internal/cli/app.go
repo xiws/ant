@@ -49,7 +49,7 @@ type App struct {
 
 	clock      func() time.Time
 	reader     *bufio.Reader
-	prompter   *terminalPrompter
+	prompter   approval.Prompter
 	tracker    *usageTracker
 	builder    projectctx.Builder
 	registry   provider.Registry
@@ -68,6 +68,8 @@ type App struct {
 	homeDirOverride string
 	env             []string
 	cfgOverride     config.View
+	onDelta         func(text, reasoning string)
+	skipResume      bool
 }
 
 // Run 是唯一进程入口。
@@ -182,7 +184,13 @@ func New(ctx context.Context, args []string, stdio Stdio, ov Overrides) (*App, e
 	if opts.jsonOut {
 		promptOut = stdio.Err
 	}
-	app.prompter = newTerminalPrompter(app.reader, promptOut, stdio.IsTTY, opts.nonInteractive)
+	if ov.Prompter != nil {
+		app.prompter = ov.Prompter
+	} else {
+		app.prompter = newTerminalPrompter(app.reader, promptOut, stdio.IsTTY, opts.nonInteractive)
+	}
+	app.onDelta = ov.OnDelta
+	app.skipResume = ov.SkipResume
 	if opts.sessionID != "" && (opts.newSession || opts.command == "new") {
 		return nil, usageErrorf("-s/--session 与 --new/new 不能同时使用")
 	}
@@ -521,9 +529,17 @@ func (a *App) openAndWire(ctx context.Context) error {
 			if d.ReasoningText != "" {
 				a.render.Reasoning(d.ReasoningText)
 			}
+			if a.onDelta != nil && (d.Text != "" || d.ReasoningText != "") {
+				a.onDelta(d.Text, d.ReasoningText)
+			}
 			return nil
 		},
-		OnText: func(text string) { a.render.Delta(text) },
+		OnText: func(text string) {
+			a.render.Delta(text)
+			if a.onDelta != nil && text != "" {
+				a.onDelta(text, "")
+			}
+		},
 	})
 
 	engine := statemachine.NewEngine(a.cfg, nodes, a.sink, statemachine.NewPlanGate(approver), a.log)
@@ -688,8 +704,12 @@ func (a *App) Run(ctx context.Context) int {
 		return a.fail(usageErrorf("内部错误：engine 未装配"))
 	}
 
-	// 断点续传：先继续未完成的 turn，再处理新输入（§21.16.1）。
-	if a.resumed != nil && shouldResume(a.resumed) {
+	// 断点续传：CLI 先继续未完成的 turn，再处理新输入（§21.16.1）。
+	// Web 的显式新输入不自动重试已经写 turn_completed 的 failed/interrupted
+	// turn；真正未完成的 turn（例如进程崩溃）仍先恢复，避免留下半截状态。
+	skipCompletedResume := a.skipResume && a.opts.prompt != "" &&
+		a.resumed != nil && a.resumed.Last == model.EventTurnCompleted
+	if a.resumed != nil && shouldResume(a.resumed) && !skipCompletedResume {
 		res, err := a.engine.ResumeTurn(ctx, resumeState(a.resumed))
 		if err != nil {
 			a.render.Notice("恢复失败：" + formatError(err))
@@ -878,7 +898,10 @@ func (a *App) runTurn(ctx context.Context, input string) int {
 		a.tracker.Reset()
 	}
 	started := time.Now()
-	res, err := a.engine.RunTurn(ctx, statemachine.TurnInput{UserInput: input, History: a.history, Summary: a.summary})
+	turn := a.sess.Meta().TurnCount + 1
+	res, err := a.engine.RunTurn(ctx, statemachine.TurnInput{
+		UserInput: input, History: a.history, Summary: a.summary, Turn: turn,
+	})
 	if err != nil {
 		a.render.Notice(formatError(err))
 		code := exitCodeForError(err)

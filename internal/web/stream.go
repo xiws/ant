@@ -11,7 +11,8 @@ import (
 	"github.com/xiws/ant/internal/session"
 )
 
-// handleStream 是 SSE 通知端点：只推 changed/ping，投影逻辑仍由前端按需重取。
+// handleStream 是 SSE 端点：推 changed 通知、活动 turn 状态、流式增量、
+// 增量事件提示以及需要用户响应的审批/ask。持久化事实仍由客户端按需重取。
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !session.ValidID(id) {
@@ -44,6 +45,13 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
+	var live <-chan sseMessage
+	unsubscribe := func() {}
+	if s.runs != nil {
+		live, unsubscribe = s.runs.Subscribe(id)
+	}
+	defer unsubscribe()
+
 	last := s.projector.Version(id)
 	poll := time.NewTicker(time.Second)
 	defer poll.Stop()
@@ -54,6 +62,15 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case msg, ok := <-live:
+			if !ok {
+				live = nil
+				continue
+			}
+			if !writeSSE(w, msg.Event, msg.Data) {
+				return
+			}
+			flusher.Flush()
 		case <-poll.C:
 			version := s.projector.Version(id)
 			if version == last {

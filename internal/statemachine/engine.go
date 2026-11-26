@@ -181,6 +181,9 @@ func (e *engine) Mode() model.Mode {
 // beginRunTurn 初始化新 turn：history 深拷贝、UserInput 作为本轮 user、预算初始化。
 func (e *engine) beginRunTurn(in TurnInput) *turnCtx {
 	e.mu.Lock()
+	if in.Turn > 0 {
+		e.turn = in.Turn - 1
+	}
 	e.turn++
 	turn := e.turn
 	mode := e.mode

@@ -4,7 +4,7 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 文档状态 | 已实现（v1.4 一期只读；`internal/web`、`internal/session/archive.go`、`internal/cli/serve.go`；前端 daisyUI + htmx + Alpine.js） |
+| 文档状态 | 已实现（历史浏览 + Web 交互执行；`internal/web`、`internal/cli/webrunner.go`、`internal/session/archive.go`；前端 daisyUI + htmx + Alpine.js + SSE） |
 | 目标版本 | v1.4 |
 | 需求编号 | `R-WEB-<序号>` |
 | 决策编号 | D48–D52（已同步至 [ADR](17-adr.md) §19） |
@@ -29,13 +29,12 @@
 | G3 轨迹可查 | 独立的“轨迹”视图按轮次/请求展示模型调用、工具调用、耗时、token、提示词与产物引用 |
 | G4 改动可看 | `edit` 显示 unified diff 与 `+/-` 统计；`write` 显示写入内容与新建/覆盖状态；右栏汇总本轮改动文件 |
 | G5 数据只来自 workspace 与 home | session 来自 `<workspace>/.ant`；全局配置与模型来自 `$ANT_HOME`（默认 `~/.ant`）；不扫描其他目录 |
-| G6 默认安全 | 只读、只监听回环地址、无账号、无 Cookie 身份、无写接口；路径与密钥都有边界 |
+| G6 默认安全 | 只监听回环地址、无账号、无 Cookie 身份；历史读取只读，提交后的写操作有同源/自定义头校验、session 锁与路径边界 |
 | G7 零新增运行时依赖 | 只用 Go 标准库 `net/http` + `embed`；前端零构建、无 Node、无 CDN；daisyUI/htmx/Alpine.js 均为本地嵌入静态资源 |
 
 ### 22.1.3 非目标（v1.4 明确不做）
 
-- 不做远程访问、多用户、团队协作、云端同步、账号/登录/注册/OAuth/余额/配额。
-- 不做 Web 端新建 session、发送消息、批准审批、回答 `ask`；这些属于二期（§22.15）。
+- 不做远程访问、多用户、团队协作、云端同步/执行、账号/登录/注册/OAuth/余额/配额；Web 执行只允许本机回环访问。
 - 不做完整 IDE/文件树/在线编辑；右栏只预览与本次会话相关的改动和产物。
 - 不跨 workspace 聚合 session；`ant serve` 绑定启动时的工作目录，行为与 `ant sessions` 一致（[§9.8](07-session.md#98-保留与隐私)）。
 - 不引入数据库、Web 框架、前端构建链或新的 Go 第三方依赖（[§16.2](14-engineering.md#162-依赖选择)）。
@@ -122,18 +121,18 @@
 | 参考页面元素 | `ant serve` 处理 | 理由 |
 | --- | --- | --- |
 | 三栏骨架、可拖拽宽度 | **保留** | 会话列表 + 阅读 + 上下文是同类信息架构 |
-| 左栏新建会话 | **一期移除**（显示“在终端新建”提示） | 一期只读，不打开 session 锁 |
+| 左栏新建会话 | **保留**，点击后聚焦 composer | 提交时由服务端创建 session 并执行 |
 | 工作区/会话列表、搜索、过滤 | **保留** | 核心导航 |
 | 对话/轨迹切换 | **保留** | 需求明确要求轨迹 |
 | 工具行、diff 卡、审批卡、计划卡 | **保留**（按 ant 事件模型裁剪） | 需求明确要求修改内容 |
 | 右栏文件/改动/产物 | **保留** | 方便核对改动 |
-| 底部输入框 | **替换为只读命令 composer** | 保留输入框、mode/model 选择与发送外观；发送只复制终端命令，一期不写 session；二期恢复真实提交 |
+| 底部输入框 | **真实任务 composer** | Enter 或按钮直接提交给本地服务执行；SSE 展示流式输出、审批/ask 与终态 |
 | 账号头像、用户名、登录/退出、余额/配额、云端会话 | **全部删除** | 需求明确“不需要账号登录” |
 | 账号设置页、登录弹窗、OAuth 回跳 | **全部删除** | 本地单用户，无账号概念 |
 | 品牌 Logo/字体/主题 | **替换为 ant 自己的轻量样式** | 不复刻品牌 |
 | 插件市场、团队、GitHub 集成等 | **不做** | 超出 v1.4 范围 |
 
-参考页的账号体系主要承载云端模型凭据、余额/配额与跨设备会话；`ant` 的模型凭据来自 workspace/home 的 `models.json` 与环境变量，会话是本机文件。`ant serve` 一期只读展示这些本地数据，不需要账号，也没有可被账号保护的云端资源。
+参考页的账号体系主要承载云端模型凭据、余额/配额与跨设备会话；`ant` 的模型凭据来自 workspace/home 的 `models.json` 与环境变量，会话是本机文件。`ant serve` 直接使用这些本地凭据执行，不需要账号，也没有云端资源需要账号保护。
 
 ## 22.3 产品需求
 
@@ -142,11 +141,11 @@
 | 编号 | 级别 | 需求 |
 | --- | --- | --- |
 | R-WEB-01 | MUST | 提供 `ant serve [--listen addr] [--open]`；无参数时监听 `127.0.0.1:7788` |
-| R-WEB-02 | MUST | 启动后打印可点击的本地 URL、workspace、home、只读提示；`--open` 才尝试打开浏览器 |
+| R-WEB-02 | MUST | 启动后打印可点击的本地 URL、workspace、home、本地交互提示；`--open` 才尝试打开浏览器 |
 | R-WEB-03 | MUST | 只接受回环地址；`0.0.0.0`、`::`、非 `localhost`/回环 IP 的主机名一律拒绝（退出码 2） |
-| R-WEB-04 | MUST | 不要求账号、登录、注册、访问令牌、Cookie 或任何身份输入；页面打开即可用（v1.4 不使用 token） |
+| R-WEB-04 | MUST | 不要求账号、登录、注册、访问令牌、Cookie 或任何身份输入；页面打开即可浏览和提交任务 |
 | R-WEB-05 | MUST | 收到 SIGINT/SIGTERM 时优雅关闭（默认 5s），退出码 0 |
-| R-WEB-06 | MUST | 不改变既有子命令与 `ant [prompt]` 行为；`ant serve` 不打开/创建 session、不取锁 |
+| R-WEB-06 | MUST | 不改变既有子命令与 `ant [prompt]` 行为；`ant serve` 启动时不打开/创建 session；只有用户提交 turn 时才打开 session、取锁并写事件 |
 | R-WEB-07 | SHOULD | 配置非法时仍能启动历史浏览，UI 显示配置告警；不因坏配置白屏 |
 
 ### 22.3.2 页面与数据
@@ -159,22 +158,25 @@
 | R-WEB-11 | MUST | 轨迹视图按轮次展示 `model_request`/`model_response`/`tool_call`/`tool_result`/`node_*`/`approval_*`/`context_compacted` 等事件，并支持详情 |
 | R-WEB-12 | MUST | 右栏展示本轮改动文件、当前文件预览、session 产物（artifact）列表与预览 |
 | R-WEB-13 | MUST | “本机”面板展示 workspace、home、版本、模型别名（无密钥）、配置来源与告警 |
-| R-WEB-14 | MUST | 运行中的 session 在 2s 内反映新增事件；无新事件时不打断阅读（保持滚动位置） |
+| R-WEB-14 | MUST | 运行中的 session 在 2s 内反映新增事件；SSE 同时推送 `delta`/`reasoning`/`status`/`approval`/`ask`；无新事件时不打断阅读（保持滚动位置） |
 | R-WEB-15 | SHOULD | 支持窄屏：768–1023 侧栏收成图标栏且右栏覆盖，<768 单栏并用抽屉打开侧栏/右栏 |
 | R-WEB-16 | SHOULD | 键盘可达：Tab 焦点、`/` 搜索、`t` 切换轨迹、`[`/`]` 上/下会话、`Esc` 关闭面板 |
-| R-WEB-23 | MUST | 前端使用本地嵌入的 daisyUI、htmx、Alpine.js；不加载 CDN、不引入 Node 构建链；htmx 片段只读且由服务端转义 |
-| R-WEB-24 | MUST | 中栏 composer 不提交写请求；发送/新建动作只生成并复制对应 `ant` 终端命令 |
+| R-WEB-23 | MUST | 前端使用本地嵌入的 daisyUI、htmx、Alpine.js；不加载 CDN、不引入 Node 构建链；htmx 片段由服务端转义 |
+| R-WEB-24 | MUST | 中栏 composer 的按钮/Enter 直接调用 `POST /api/sessions` 或 `/api/sessions/{id}/turns` 执行；提交成功后清空输入并用 SSE 展示过程 |
 
 ### 22.3.3 安全与数据边界
 
 | 编号 | 级别 | 需求 |
 | --- | --- | --- |
-| R-WEB-17 | MUST | 只读：不写 session、meta、events、artifact、workspace 文件；不创建 `.ant/sessions` |
+| R-WEB-17 | MUST | 浏览/查询路径不写任何文件；只有用户显式提交 turn 时才写该 session 的 meta/events/artifact 与工作区文件。服务启动和浏览不得创建 `.ant/sessions` |
 | R-WEB-18 | MUST | 所有文件读取限制在 workspace 与 home 白名单内；拒绝 `..`、绝对路径、符号链接逃逸 |
 | R-WEB-19 | MUST | 不返回 `apiKey`、`Authorization`、环境变量值；`models.json` 原文件不直接下发，只下发解析后的模型元数据 |
 | R-WEB-20 | MUST | 响应带 CSP、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`；无 CORS |
 | R-WEB-21 | MUST | 无账号相关路由/文案/存储：不出现登录弹窗、头像、账号菜单、Cookie 身份 |
 | R-WEB-22 | SHOULD | 测试覆盖路径穿越、Host 校验、304 缓存、坏事件、缺失 artifact、无账号 UI |
+| R-WEB-25 | MUST | 所有写接口要求 `application/json`、`X-ANT-Request: 1`，并校验 `Origin`/`Sec-Fetch-Site`；请求体上限 1 MiB；无 CORS |
+| R-WEB-26 | MUST | 同一 session 同时最多一个 Web turn；CLI/其他进程持锁时返回 409；提交失败不得破坏已有 session |
+| R-WEB-27 | MUST | 运行中可停止 turn；审批与 ask 通过 SSE 推送并可由 HTTP POST 回答，超时/断线不得永久挂起 |
 
 ## 22.4 信息架构与页面设计
 
@@ -195,11 +197,11 @@
 │ 昨天                         │ │                                          │ │                          │
 │ ○ 设计 session 存储  3 轮     │ │ 复制 · 用量 9.2k tok · 22:47              │ │                          │
 │   20261106-...               │ └──────────────────────────────────────────┘ │                          │
-│ │ ● 本地模式 · 只读         │ │ ┌──────────────────────────────────────────┐ │                          │
-│ │ /path/to/workspace        │ │ │ ⌁ ask                        只读 · 复制命令│ │                          │
-│ │ ant v1.4 · 127.0.0.1:7788 │ │ │ 描述你想要构建的内容，/ 调用指令，@ 文件   │ │                          │
-│ │ [本机配置] [设置]          │ │ │ 或对话                                    │ │                          │
-│ └──────────────────────────┘ │ │ 输入内容后复制终端命令      model:9b   [↑] │ │                          │
+│ │ ● 本地交互 · 可执行       │ │ ┌──────────────────────────────────────────┐ │                          │
+│ │ /path/to/workspace        │ │ │ ⌁ ask                     本地执行 · SSE │ │                          │
+│ │ ant v1.4 · 127.0.0.1:7788 │ │ │ 描述你想要构建的内容，Enter 发送           │ │                          │
+│ │ [本机配置] [设置]          │ │ │ Shift+Enter 换行             model:9b [↑] │ │                          │
+│ └──────────────────────────┘ │ └──────────────────────────────────────────┘ │                          │
 │                              │ └──────────────────────────────────────────┘ │                          │
 └──────────────────────────────┴──────────────────────────────────────────────┴──────────────────────────┘
 ```
@@ -209,23 +211,23 @@
 - 左栏顶部是 `ant` 品牌、折叠按钮和**创建会话**主按钮；下方仍是紧凑搜索、模式/状态过滤、按日期分组的会话列表。
 - 会话项显示标题、状态点、mode badge、轮数、token、相对时间和完整 session ID；当前会话使用高亮选中态。
 - 中栏对话采用“用户消息 → 可折叠本轮执行过程 → 最终 Markdown 回答”的顺序：用户消息右对齐，复制与时间在气泡下方；完成状态行可展开工具/审批/错误等执行细节；最终回答底部左侧是复制、token 用量和输出时间。
-- 中栏底部由“只读状态条”改为**只读命令 composer**：输入框左上角选择 mode，右下角选择模型并以复制命令按钮结束。它保留参考页输入框的位置与视觉，但一期不发送 POST。
-- 点击“创建会话”或 composer 发送只会切换到新建会话草稿并生成 `ant new ...` 命令，实际会话仍在终端创建。
+- 中栏底部是**真实任务 composer**：输入框左上角选择 mode，右下角选择模型；Enter/发送按钮直接提交执行，运行中按钮切换为停止。SSE 实时展示助手增量、工具事件、审批/ask 与终态。
+- 点击“创建会话”会回到 workspace 空态并聚焦 composer；提交后由服务端创建 session 并开始第一轮执行。
 - 右栏仍是上下文面板，默认打开“改动”；没有改动时打开“产物”，都没有时收起。
-- 左下角没有头像/账号/登录/退出/配额，只有“本地模式 · 只读”状态卡：workspace、home、版本、监听地址、`本机配置`、`设置`。
+- 左下角没有头像/账号/登录/退出/配额，只有“本地交互 · 可执行”状态卡：workspace、home、版本、监听地址、`本机配置`、`设置`。
 
 ### 22.4.2 左栏
 
 | 区域 | 内容 | 交互 |
 | --- | --- | --- |
 | 品牌行 | `ant`、版本、`收起/展开` | 点击折叠/展开；窄屏折叠为图标栏 |
-| 创建会话 | 全宽主按钮“创建会话” | 切到新建会话草稿并聚焦 composer；一期不写 session |
+| 创建会话 | 全宽主按钮“创建会话” | 切到新建会话草稿并聚焦 composer；发送后创建 session 并执行 |
 | 搜索 | 按标题、ID、模型过滤 | `/` 聚焦；输入 250ms 防抖后由 htmx 刷新 `#session-list` |
 | 过滤 | mode：全部 / `code` / `plan` / `ask` / `council`；状态：任意 / `running` / `idle` / `interrupted` / `failed` | 下拉选择，与搜索叠加，htmx 刷新列表 |
 | 会话列表 | 标题、状态点、mode badge、轮数、token、相对时间、完整 session ID | 点击切换；键盘 `[`/`]`；当前项 `session-active` 高亮 |
 | 分组 | 今天 / 昨天 / 更早 | 服务端片段生成粘性小标题 |
-| 空状态 | “当前 workspace 还没有 session” + `ant "..."` 提示 | 展示终端命令；匹配不到时提示清空筛选 |
-| 底部 | “本地模式 · 只读”卡：workspace、版本、监听地址、`本机配置`、`设置` | 打开本地配置/设置对话框；不出现账号 |
+| 空状态 | “当前 workspace 还没有 session” | 提示在下方 composer 输入任务；匹配不到时提示清空筛选 |
+| 底部 | “本地交互 · 可执行”卡：workspace、版本、监听地址、`本机配置`、`设置` | 打开本地配置/设置对话框；不出现账号 |
 
 左栏列表由 htmx 请求 `GET /ui/sessions?q=&mode=&status=` 获取服务端转义的 HTML 片段并替换 `#session-list`；底部状态卡由 `GET /ui/status` 加载。这样列表/状态卡不需要在前端重复拼装 HTML，复杂会话与轨迹仍由 Go 投影后的 JSON + `render.js` 渲染。
 
@@ -241,7 +243,7 @@
 
 ### 22.4.3 会话页（对话）
 
-**头部**：标题（可编辑？一期不可）、session ID（可复制）、模式 badge、模型别名、状态、更新时间、turn 数、token 总数；右侧“复制 session 路径”“刷新”“在终端继续”。
+**头部**：标题、session ID（可复制）、模式 badge、模型别名、状态、更新时间、turn 数、token 总数；右侧“复制 session 路径”“刷新”。
 
 **Turn 分组与对话布局**：每个 turn 采用固定阅读顺序，不再使用始终展开的“第 N 轮”消息卡：
 
@@ -270,26 +272,27 @@
 | 会话初始化 | `pseudo` turn 只显示状态与执行过程，不显示伪造用户输入 |
 | 未知事件 | 不进入对话流；在轨迹里以“未知事件”显示原始 JSON |
 
-**只读命令 composer**（中栏底部）：
+**任务 composer**（中栏底部）：
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ ⌁ ask                                       只读 · 复制终端命令 │
+│ ⌁ ask                                        本地执行 · SSE   │
 │                                                              │
-│ 描述你想要构建的内容，/ 调用指令，@ 文件或对话                 │
+│ 描述你想要构建的内容，Enter 发送，Shift+Enter 换行             │
 │                                                              │
-│ 输入内容后复制续跑命令（Ctrl/⌘+Enter）     ornith-1.5:9b  [↑] │
+│ 执行中：SSE 实时更新，可点击停止        ornith-1.5:9b  [↑/■] │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 - 左上角：mode 下拉（`code` / `plan` / `ask` / `council`），默认取当前 session 的 mode；新建草稿默认取配置 `defaultMode`。
-- 右下角：模型下拉（来自 `/api/config` 的别名，不包含密钥）和圆形发送按钮；新建草稿使用 `defaultModel`，续跑默认取 session 记录模型。
-- 发送按钮只做两件事：按当前路由生成命令并复制到剪贴板，然后显示 toast。**不发 POST、不写 session、不抢锁**。
-  - 新会话：`ant new -m <mode> -p <model> '<输入>'`
-  - 续跑：`ant -s <id> -m <mode> -p <model> '<输入>'`
-- “创建会话”按钮会回到 workspace 空态、聚焦 composer，并保留 mode/model 选择；同样只生成终端命令。
-- 输入框为空时发送按钮禁用；`Ctrl+Enter` / `⌘+Enter` 等价于点击发送。
-- 空态与无 session 时 composer 仍可见，便于复制第一条命令；session 载入时自动同步 mode/model 展示值。
+- 右下角：模型下拉（来自 `/api/config` 的别名，不包含密钥）和发送/停止按钮；新建草稿使用 `defaultModel`，续跑默认取 session 记录模型。
+- 空态调用 `POST /api/sessions`，当前 session 调用 `POST /api/sessions/{id}/turns`；服务端打开 session、取锁并执行真实 agent turn。
+- Web 的每次提交都作为**新 turn**：不会在运行新输入前自动重试上一次 failed/interrupted turn；turn 号由 session 的 `turnCount` 续接。
+- 输入框为空或正在提交时发送按钮禁用；`Enter` 发送，`Shift+Enter` 换行，`Ctrl/⌘+Enter` 也可发送。
+- 运行中发送按钮切换为停止按钮，调用 `POST /api/sessions/{id}/cancel`；取消后由引擎写入 interrupted 事件与 meta。
+- SSE `delta`/`reasoning` 先做临时流式展示；`event`/`changed` 触发权威投影重取；`run_done` 后替换为最终持久化内容。
+- 审批与 ask 由 SSE 卡片展示，分别 POST 到 `/api/approvals/{id}` 与 `/api/asks/{id}`；超时或断线按失败/拒绝路径收尾，不永久挂起。
+- session 载入时自动同步 mode/model 展示值；新会话提交成功后跳到该 session 并打开 SSE。
 
 ### 22.4.4 轨迹页
 
@@ -548,7 +551,7 @@ cli ──> web ──> session ──> model
   └──> version / logx
 ```
 
-`web` 不 import `cli`、`agent`、`statemachine`、`tool`；它只消费 `session.Archive`、`config.View` 和 `model` 词汇。这样一期只读不会把整棵运行时依赖树拖进 Web 进程，测试也只需要临时目录。
+`web` 仍不直接 import `cli`、`agent`、`statemachine`、`tool`；执行能力通过 `web.Executor` 接口由组合根（`internal/cli/webrunner.go`）注入。历史浏览只消费 `session.Archive`、`config.View` 与 `model` 词汇；测试可以注入 fake executor，不启动真实 provider。
 
 ### 22.6.2 只读归档 `session.Archive`
 
@@ -645,11 +648,11 @@ recover → request log → security headers → host check → mux
 | --- | --- | --- | --- |
 | GET | `/` | SPA 入口 | `index.html`；`Cache-Control: no-cache` |
 | GET | `/assets/*` | 静态资源 | `Cache-Control: public, max-age=3600`；ETag |
-| GET | `/api/health` | 健康检查 | `{ok, version, workspace, home, readonly:true}` |
+| GET | `/api/health` | 健康检查 | `{ok, version, workspace, home, readonly, interactive}`；注入执行器时 `interactive:true` |
 | GET | `/api/sessions` | 会话列表 | `limit`（默认 100，最大 500）、`mode`、`status`、`q` |
 | GET | `/api/sessions/{id}` | 会话详情 | 完整 `SessionView`；支持 `beforeTurn`/`limit` |
 | GET | `/api/sessions/{id}/events` | 增量事件 | `after=seq`；调试/轮询兜底 |
-| GET | `/api/sessions/{id}/stream` | SSE | `changed`/`ping`；不传全量 |
+| GET | `/api/sessions/{id}/stream` | SSE | `changed`/`ping`/`status`/`event`/`delta`/`reasoning`/`approval`/`ask`/`run_done`/`run_error`；不传全量投影 |
 | GET | `/api/sessions/{id}/artifacts/{path...}` | artifact | 仅 `artifacts/`；文本预览/二进制下载 |
 | GET | `/api/sessions/{id}/plan` | 计划 | `artifacts/plan.md` / `artifacts/plan/round-N.md`；兼容返回路径里的 `<session>/plan.md` |
 | GET | `/api/workspace/file` | 文件预览 | `path` 相对 workspace；排除 `.git`、`.ant/sessions`、`.ant/logs`、`.ant/settings.json`、`.ant/models.json` |
@@ -657,8 +660,13 @@ recover → request log → security headers → host check → mux
 | GET | `/api/home` | home 文件清单 | 只返回名称/大小/时间，不返回内容 |
 | GET | `/api/home/prompt` | home prompt 预览 | 仅 `prompt.md`、`prompts/<known>.md` |
 | GET | `/api/project` | 项目上下文 | `.ant/project.md` + `.ant/project.meta.json` |
+| POST | `/api/sessions` | 新建 session 并执行首轮 | `{input, mode, model}`；返回 202 `{sessionId, runId, status}` |
+| POST | `/api/sessions/{id}/turns` | 在已有 session 上执行 turn | 同一 session 只允许一个活动 run；锁冲突 409 |
+| POST | `/api/sessions/{id}/cancel` | 停止活动 turn | 返回 `{cancelled:true|false}`；引擎写 interrupted 事件 |
+| POST | `/api/approvals/{id}` | 回答审批 | `{decision:"allow_once"|"allow_session"|"deny"}` |
+| POST | `/api/asks/{id}` | 回答 ask | `{selectedId, text}` |
 
-一期**没有任何 POST/PUT/PATCH/DELETE**。这是“无账号、无 CSRF、只读”的直接保证；二期加写接口时再单独设计防护（§22.15）。
+所有写接口要求 `Content-Type: application/json` 与 `X-ANT-Request: 1`，并校验 `Origin`/`Sec-Fetch-Site` 同源；请求体上限 1 MiB。读取接口仍不产生写副作用。
 
 artifact URL 约定：`/api/sessions/{id}/artifacts/{path...}` 里的 `path` 是**相对 `artifacts/` 的名字**（如 `message-...txt`、`plan/round-1.md`）；服务端拼回 `artifacts/<path>` 再调用 `Archive.Artifact`。JSON 里的 `ref.name` 仍保留 `artifacts/` 前缀，前端构造 URL 时去掉该前缀，避免出现 `/artifacts/artifacts/...`。
 
@@ -801,11 +809,29 @@ func (p *Projector) View(ctx context.Context, id string, opt ViewOptions) (*Sess
 
 ### 22.6.7 实时更新
 
-一期用 **SSE 通知 + 客户端按需重取**，不把投影逻辑复制到前端：
+交互执行采用 **SSE 实时通道 + 客户端按需重取权威投影**，不把投影逻辑复制到前端：
 
 ```text
 GET /api/sessions/{id}/stream
 Content-Type: text/event-stream
+
+event: status
+data: {"sessionId":"...","runId":"run-...","running":true}
+
+event: delta
+data: {"runId":"run-...","text":"助手增量","reasoning":""}
+
+event: event
+data: {"seq":128,"type":"tool_call","turn":3,"node":"code"}
+
+event: approval
+data: {"id":"prompt-...","kind":"approval","class":"bash_risk","title":"..."}
+
+event: ask
+data: {"id":"prompt-...","kind":"ask","question":"...","options":[]}
+
+event: run_done
+data: {"runId":"run-...","status":"ok","exitCode":0}
 
 event: changed
 data: {"lastSeq":128,"updatedAt":"..."}
@@ -815,9 +841,10 @@ data: {}
 ```
 
 - 服务端每 1s `stat` `events.jsonl` 与 `meta.json`；`size/mtime` 变化时发 `changed`；
-- 每 15s 发 `ping`，防止代理超时；
-- 客户端收到 `changed` 后带 `If-None-Match` 重新 GET `/api/sessions/{id}`；304 则忽略；
-- 连接上限 32；超过返回 503；`ctx.Done()` 立即退出，避免 goroutine 泄漏；
+- SSE 连接建立时补发当前 `status` 和尚未回答的 `approval`/`ask`，页面刷新后可继续交互；
+- `delta`/`reasoning` 只用于临时流式展示；`event`/`changed` 触发带 `If-None-Match` 的权威投影重取；
+- `run_done`/`run_error` 结束运行态；审批/ask 超时、取消或断线不会让执行永久挂起；
+- 每 15s 发 `ping`；连接上限 32；超过返回 503；`ctx.Done()` 立即退出，避免 goroutine 泄漏；
 - 不支持 SSE 的客户端降级为 2s 轮询 `/api/sessions/{id}/events?after=lastSeq`。
 
 ### 22.6.8 错误模型
@@ -888,12 +915,12 @@ static/
 | `diff.js` | unified diff 行号、`+/-`、折叠、复制 | `renderDiff` |
 | `markdown.js` | 先转义再解析 Markdown 白名单 | `renderMarkdown` |
 
-服务端新增只读 HTML 片段：
+服务端提供只读 HTML 片段：
 
 | 路由 | 用途 | 数据源 |
 | --- | --- | --- |
 | `GET /ui/sessions?q=&mode=&status=&limit=` | 左栏会话列表片段，htmx `innerHTML` 替换 `#session-list` | 与 `/api/sessions` 相同的 `Projector.List` |
-| `GET /ui/status` | 左下角“本地模式 · 只读”状态卡 | `Deps.Version`、workspace、请求 Host |
+| `GET /ui/status` | 左下角“本地交互 · 可执行”状态卡 | `Deps.Version`、workspace、请求 Host |
 
 两个 `/ui/*` 路由均为 GET、无写副作用、`text/html; charset=utf-8`、`Cache-Control: no-store`，并由 `html.EscapeString`/手工安全拼接转义所有动态文本。
 
@@ -909,7 +936,7 @@ Hash 路由不变：
 #/settings                  → 设置对话框
 ```
 
-Alpine 根状态负责外壳交互：`sidebarCollapsed`、`mobileSidebarOpen`、`rightOpen`、`composerMode`、`composerModel`、`draft`、`hasSession`、`modelOptions`、`versionText`。业务数据仍由 `app.js` 的普通状态对象维护，原因：
+Alpine 根状态负责外壳交互：`sidebarCollapsed`、`mobileSidebarOpen`、`rightOpen`、`composerMode`、`composerModel`、`draft`、`hasSession`、`running`、`submitting`、`stopping`、`modelOptions`、`versionText`。业务数据仍由 `app.js` 的普通状态对象维护，原因：
 
 - 会话详情体积大、工具卡/轨迹需要命令式 DOM 渲染，不适合全部放进 Alpine 响应式树；
 - htmx 负责“左栏片段”，Alpine 负责“外壳状态”，`render.js` 负责“复杂历史内容”，三者边界清晰。
@@ -924,19 +951,34 @@ hashchange
   → app.js 解析 route → GET /api/sessions/<id> → render.js 渲染中/右栏
   → Alpine 更新 composer mode/model 与 hasSession
 
-SSE changed
+composer submit
+  → POST /api/sessions 或 /api/sessions/<id>/turns
+  → 服务端取锁并在后台执行 turn；返回 sessionId/runId
+  → app.js 跳到 session 并建立 EventSource
+
+SSE delta/reasoning
+  → 临时更新“实时输出”气泡，不写 DOM 事件状态机
+
+SSE event/changed
   → app.js 带 If-None-Match 重取详情 → 304 则忽略
   → htmx.trigger(body, 'ant:sessions-refresh') 刷新左栏片段
+
+SSE approval/ask
+  → 显示可操作卡片 → POST /api/approvals/{id} 或 /api/asks/{id}
+  → 引擎继续执行；resolved 事件经 event/changed 回到权威投影
+
+SSE run_done/run_error
+  → 退出运行态、重取最终投影、恢复发送按钮
 ```
 
 ### 22.7.4 渲染原则
 
 - **服务端投影，前端只渲染**：diff 行号、tool 状态、turn 汇总都在 Go 侧算好；JS 不重复实现事件状态机。
 - **片段优先**：左栏列表和本地状态卡由服务端输出 HTML，htmx 做局部替换；复杂 turn/轨迹由结构化 JSON 驱动 `render.js`。
-- **增量更新**：SSE 只通知“有变化”，客户端按 ETag 重取；304 时保持滚动位置与 DOM。
+- **增量更新**：SSE 的 `delta`/`reasoning` 做临时流式展示；`event`/`changed` 触发 ETag 重取，304 时保持滚动位置与 DOM。
 - **空/错/加载**三态必须有；任何单项失败只降级该卡片。
-- **可复制**：session ID、路径、命令、代码、错误、diff、用户输入和最终回答都可复制；composer 的核心动作就是复制命令。
-- **对话折叠**：用户消息、完成状态行与执行过程分层渲染；展开状态只保存在前端，不改变只读投影与 API 契约。
+- **可复制**：session ID、路径、命令、代码、错误、diff、用户输入和最终回答都可复制；composer 的核心动作是直接提交执行。
+- **对话折叠**：用户消息、完成状态行与执行过程分层渲染；展开状态只保存在前端，不改变投影与 API 契约。
 - **可访问**：语义化标签、`aria-live` 状态、`aria-expanded`/`aria-controls`、焦点环、键盘操作、颜色+符号双编码。
 
 ### 22.7.5 安全渲染与 CSP
@@ -946,7 +988,7 @@ SSE changed
 - 代码块、diff 行、工具输出均用 `textContent` 写入，不拼 HTML。
 - htmx 只 swap 由 `/ui/*` 返回并已转义的服务端片段；用户/模型文本不进入 htmx 片段，除非已转义。
 - CSP 禁止内联脚本和 `onclick`，`index.html` 不写内联 `style=""`。
-- Alpine.js 标准构建使用 `new Function` 解析 `x-*` 表达式，因此 `script-src` 需要放行 `'unsafe-eval'`；这是本地单用户、只读、无写接口场景下接受的权衡。其余脚本仍只允许 `'self'`，且不加载任何第三方 CDN。若未来需要更严格 CSP，可替换为 Alpine CSP build 并移除 `'unsafe-eval'`。
+- Alpine.js 标准构建使用 `new Function` 解析 `x-*` 表达式，因此 `script-src` 需要放行 `'unsafe-eval'`；这是本地单用户、回环服务场景下接受的权衡。其余脚本仍只允许 `'self'`，且不加载任何第三方 CDN。若未来需要更严格 CSP，可替换为 Alpine CSP build 并移除 `'unsafe-eval'`。
 - 不使用 `innerHTML` 渲染任何服务端文本；模板只拼接结构化字段，文本走 `textContent`；htmx 片段除外，但其动态字段全部由 Go 侧转义。
 
 ### 22.7.6 视觉规范
@@ -966,6 +1008,9 @@ SSE changed
 | 路径 | 职责 | 关键内容 | 预估 |
 | --- | --- | --- | --- |
 | `internal/session/archive.go` | 只读归档 facade | `Archive`/`Snapshot`/`LockState`；`List`/`Snapshot`/`Artifact`；路径与大小上限 | ~220 行 |
+| `internal/web/runs.go` | 活动 run、SSE 订阅、审批/ask 队列 | `runManager`、`webPrompter`、`RunStartResult` | ~430 行 |
+| `internal/web/runs_http.go` | 写接口与 CSRF/同源校验 | `POST /api/sessions*`、approval/ask handler | ~220 行 |
+| `internal/cli/webrunner.go` | Web 执行器，复用 CLI 组合根 | `webExecutor.Run` | ~110 行 |
 | `internal/session/archive_test.go` | 归档单测 | 不写目录、坏行、缺失 artifact、路径穿越、锁状态 | ~200 行 |
 | `internal/web/server.go` | Server 生命周期 | `Deps`、`New`、`Handler`、`Serve`、中间件 | ~180 行 |
 | `internal/web/routes.go` | 路由与 handler | `GET /api/*`、`GET /ui/*`、静态 fallback、错误 JSON、参数解析 | ~300 行 |
@@ -1209,7 +1254,7 @@ func (a *App) runServe(ctx context.Context) int {
 	fmt.Fprintf(a.stdio.Out, "[ant] serve: %s\n", url)
 	fmt.Fprintf(a.stdio.Out, "      workspace: %s\n", wd)
 	fmt.Fprintf(a.stdio.Out, "      home:      %s\n", a.homeDir())
-	fmt.Fprintln(a.stdio.Out, "      只读模式 · 无需登录 · Ctrl-C 停止")
+	fmt.Fprintln(a.stdio.Out, "      本地交互模式 · 无需登录 · Ctrl-C 停止")
 
 	if a.opts.open {
 		if err := openBrowser(url); err != nil {
@@ -1238,7 +1283,7 @@ func isLoopback(addr net.Addr) bool {
 
 `openBrowser` 放在 `serve.go` 内即可（约 15 行）：`darwin` 用 `open`、`windows` 用 `rundll32 url.dll,FileProtocolHandler`、其他用 `xdg-open`；失败只告警，不影响服务。
 
-`serveLogger` 也放在 `serve.go`：用 `logx.NewWithWriter(logx.LevelInfo, a.stdio.Err)`（或按 `--log-level` 解析），**不要**调用 `newLogger`，因为后者会写 `.ant/logs`，违反只读。
+`serveLogger` 也放在 `serve.go`：用 `logx.NewWithWriter(logx.LevelInfo, a.stdio.Err)`（或按 `--log-level` 解析），**不要**调用 `newLogger`，因为 serve 自身不应在启动时写 `.ant/logs`；真正执行 turn 的短生命周期 App 会按 CLI 正常日志策略写入。
 
 `loadConfigBestEffort` 先看 `a.cfgOverride`（测试注入），否则复用现有 `loadConfig`，但把错误返回给调用方；不要吞掉 warning。配置为 `nil` 时 `web.Deps.Config == nil`，`/api/config` 返回 `{available:false, error:...}`，页面顶部显示配置告警。
 
@@ -1249,7 +1294,7 @@ $ ant serve
 [ant] serve: http://127.0.0.1:7788
       workspace: /mnt/workspace/work/go/ant
       home:      /home/xiw/.ant
-      只读模式 · 无需登录 · Ctrl-C 停止
+      本地交互模式 · 无需登录 · Ctrl-C 停止
 ```
 
 | 情况 | 退出码 |
@@ -1282,7 +1327,7 @@ if ctx.Err() != nil && code == 0 && app.opts.command != "serve" {
 
 ### 22.10.1 威胁模型
 
-`ant serve` 的默认部署是**单用户开发机、回环地址、只读**。它不试图防御：
+`ant serve` 的默认部署是**单用户开发机、回环地址、本地交互执行**。它不试图防御：
 
 - 已经拿到当前 OS 用户权限的恶意进程（它们可以直接读 `~/.ant` 与 workspace 文件）；
 - 物理访问、内存转储、浏览器扩展读取页面内容；
@@ -1293,14 +1338,14 @@ if ctx.Err() != nil && code == 0 && app.opts.command != "serve" {
 | 威胁 | 防护 |
 | --- | --- |
 | 其他本地用户通过 HTTP 读取 session | v1.4 默认信任本机用户（仅回环）；多用户主机必须加 token 或不要运行（见下） |
-| 恶意网页通过浏览器访问 `127.0.0.1` | Host 校验 + 无 CORS + 无写接口 + CSP；一期只读，CSRF 无副作用；htmx 表单全为 GET |
+| 恶意网页通过浏览器访问 `127.0.0.1` | Host 校验 + 无 CORS + CSP；写接口要求 JSON 自定义头并校验 Origin/Sec-Fetch-Site，跨站预检失败；跨站 GET 只读 |
 | DNS rebinding | Host 只允许 `localhost`/`127.0.0.1`/`[::1]` |
 | 路径穿越/符号链接逃逸 | 见 §22.10.3 |
 | 密钥泄露 | 只下发解析后的模型元数据；不返回 provider key/headers/env |
-| XSS（会话内容含恶意 HTML） | Markdown 白名单 + `textContent` + 服务端 HTML 片段转义 + CSP；Alpine 需要 `unsafe-eval` 的残余风险在本地只读边界内接受 |
+| XSS（会话内容含恶意 HTML） | Markdown 白名单 + `textContent` + 服务端 HTML 片段转义 + CSP；Alpine 需要 `unsafe-eval` 的残余风险在本地单用户边界内接受 |
 | 大文件/大 session 拖垮进程 | 大小/条数上限 + 分页 + 413 |
 
-**多用户主机的残余风险**：任何本地用户都能连接回环端口；服务端以启动用户身份读文件。若机器不是单人使用，一期建议不要把 workspace 放在共享目录，或在二期加 `--token`（URL 带随机 token，不弹登录页、不涉及账号）。这不是账号登录，但属于访问控制；默认关闭，保持“无登录”的产品要求。
+**多用户主机的残余风险**：任何本地用户都能连接回环端口；服务端以启动用户身份读文件。若机器不是单人使用，建议不要把 workspace 放在共享目录，或后续增加 `--token`（URL 带随机 token，不弹登录页、不涉及账号）。这不是账号登录，但属于访问控制；默认关闭，保持“无登录”的产品要求。
 
 ### 22.10.2 无账号设计
 
@@ -1310,7 +1355,7 @@ if ctx.Err() != nil && code == 0 && app.opts.command != "serve" {
 - 不设置任何身份 Cookie、`Authorization` 头、localStorage 用户信息；
 - 不在 UI 出现头像、用户名、登录/退出、余额、配额、云端会话；
 - 不引入账号 SDK、不读取 `~/.dsh` 或任何外部账号配置；
-- 不把“监听令牌”当登录：一期直接无令牌；二期如加 token，只在 URL 中传递，不进入 UI。
+- 不把“监听令牌”当登录：当前默认无 token；若未来增加 token，只在 URL 中传递，不进入 UI。
 
 测试用静态扫描保证嵌入的 `static/` 不含 `login`、`sign in`、`账号`、`登录`、`account` 等账号相关文案（允许“本机配置/设置”）。
 
@@ -1351,13 +1396,22 @@ Cross-Origin-Resource-Policy: same-origin
 - 不使用内联脚本；`index.html` 不写 `onclick`；也不写内联 `style=""`（CSP 未放行 `unsafe-inline`）。
 - `script-src` 放行 `'unsafe-eval'` 仅因 Alpine.js 标准构建用 `new Function` 解析 `x-*` 表达式；不使用 CDN、不加载用户脚本，且所有模型/会话文本先转义。后续可切换 Alpine CSP build 并收紧到 `script-src 'self'`。
 
-### 22.10.5 只读保证
+### 22.10.5 读写边界与写接口防护
+
+浏览与查询路径保持只读：
 
 - `session.Archive` 不调用 `Store.Open`，不创建 `artifacts/`；
-- 所有文件操作只有只读 API：`os.Open`/`os.ReadFile`/`os.Stat`/`os.ReadDir`/`filepath.EvalSymlinks`；不调用 `Mkdir`/`WriteFile`/`Remove`/`Lock`；
-- 服务日志只写 stderr，不写 `.ant/logs`；
-- 前端没有写提交：`/ui/sessions` 与筛选表单只发 GET；composer 的发送/新建按钮只复制终端命令，不调用 `fetch` POST；一期没有 POST 路由；
-- 测试用目录快照断言 `ant serve` 前后 `.ant` 无变化（除操作系统 atime）。
+- 列表/详情/artifact/文件预览只走 `os.Open`/`os.ReadFile`/`os.Stat`/`os.ReadDir`/`filepath.EvalSymlinks`；
+- `/ui/sessions`、`/ui/status` 与筛选表单只发 GET；
+- 服务启动本身不创建 `.ant/sessions`，也不获取 session 锁。
+
+用户显式提交 turn 后：
+
+- `internal/cli/webrunner.go` 复用 CLI 组合根，通过 `Store.Open(..., Lock:true)` 打开/创建 session；锁冲突返回 409；
+- 同一 session 在 Web 进程内最多一个活动 run；重复提交返回 409；
+- 引擎按正常 CLI 语义写 meta/events/artifact 和执行工作区工具，审批/ask 经 SSE 转给浏览器；
+- 停止请求取消该 run 的 context，由引擎写 interrupted 事件并释放锁；
+- 并发与安全测试覆盖缺失 `X-ANT-Request`、错误 Content-Type、跨站 Origin、重复提交、CLI 持锁、取消后收尾。
 
 ### 22.10.6 密钥与敏感内容
 
@@ -1392,7 +1446,7 @@ Cross-Origin-Resource-Policy: same-origin
 
 ### 22.11.3 手工验收
 
-1. 在 workspace 运行 `ant serve`；终端打印 URL、workspace、home、只读提示。
+1. 在 workspace 运行 `ant serve`；终端打印 URL、workspace、home、本地交互提示。
 2. 打开页面：无登录页、无账号区、无 401；左栏出现当前 workspace 的 session。
 3. 点击一个包含工具调用的 session：用户输入在右侧，气泡下方复制/时间与分隔线正确；点击“已完成，用时 …”可展开/收起工具卡、审批、错误等执行过程；最终回答按 Markdown 渲染，左下角复制、token 用量、输出时间正确。
 4. 切到“轨迹”：请求/工具行、时间、token、详情 tab 正常；“思考”显示“未记录”而不是空白或伪造。
@@ -1400,10 +1454,10 @@ Cross-Origin-Resource-Policy: same-origin
 6. 打开“本机配置”：workspace/home/版本/模型/来源/告警正确；无 apiKey。
 7. 在另一个终端对同一 session 运行 `ant "..."`：页面 2s 内出现新 turn/新工具行，滚动位置不跳。
 8. 窄屏 800px：侧栏收成图标栏；右栏可覆盖；键盘可达。
-9. 在 composer 输入内容：顶部 mode 下拉和右下角模型下拉可用；点击发送/`Ctrl+Enter` 复制 `ant new ...` 或 `ant -s ...` 命令，不产生 POST，也不写 `.ant`。
+9. 在 composer 输入内容：Enter/发送按钮直接创建或续跑并执行；SSE 实时显示增量、工具事件和终态；运行中可停止。若触发审批或 ask，页面出现可操作卡片并能继续执行。
 10. 在左栏输入搜索或切换 mode/status：htmx 刷新 `#session-list`，选中项高亮保持；`/ui/status` 显示 workspace/版本/监听地址。
 11. `curl -H 'Host: evil' http://127.0.0.1:7788/api/health` 返回 403；`ant serve --listen 0.0.0.0:7788` 退出 2。
-12. Ctrl-C：优雅停止，退出码 0；`.ant` 下无新增文件。
+12. Ctrl-C：优雅停止，退出码 0；活动 run 被取消，session 锁释放。
 
 ### 22.11.4 性能目标
 
@@ -1419,7 +1473,7 @@ Cross-Origin-Resource-Policy: same-origin
 ### 22.11.5 验收清单
 
 - [ ] R-WEB-01 `ant serve` 可用，默认 `127.0.0.1:7788`
-- [ ] R-WEB-02 启动输出 URL/workspace/home/只读提示
+- [ ] R-WEB-02 启动输出 URL/workspace/home/本地交互提示
 - [ ] R-WEB-03 非回环地址拒绝，退出码 2
 - [ ] R-WEB-04 全站无登录/账号/令牌/Cookie
 - [ ] R-WEB-05 优雅关闭，退出码 0
@@ -1434,14 +1488,14 @@ Cross-Origin-Resource-Policy: same-origin
 - [ ] R-WEB-14 运行中 session 2s 内更新
 - [ ] R-WEB-15 响应式布局
 - [ ] R-WEB-16 键盘可达
-- [ ] R-WEB-17 只读，无写盘
+- [ ] R-WEB-17 浏览路径无写盘；提交后才写对应 session
 - [ ] R-WEB-18 路径/符号链接安全
 - [ ] R-WEB-19 无密钥泄露
 - [ ] R-WEB-20 安全响应头
 - [ ] R-WEB-21 无账号 UI/路由/存储
 - [ ] R-WEB-22 测试覆盖关键边界
 - [ ] R-WEB-23 daisyUI/htmx/Alpine 本地加载，不访问 CDN
-- [ ] R-WEB-24 composer 只复制命令，无 POST/写 session
+- [ ] R-WEB-24 composer 直接 POST 执行并用 SSE 更新
 
 ## 22.12 实施计划
 
@@ -1451,16 +1505,16 @@ Cross-Origin-Resource-Policy: same-origin
 | P1 历史 | 投影器 + `/api/sessions` + `/api/sessions/{id}` + 对话流 + 工具卡 + 摘要 | 核心历史可读 | 3–4 天 |
 | P2 细节 | diff 解析 + write 卡片 + 右栏改动/文件/artifact + 轨迹表/检查器 | 轨迹与修改内容完整 | 3–4 天 |
 | P3 打磨 | SSE/ETag/分页 + 本机配置 + 响应式/快捷键 + 安全头 + 测试 | 可交付 v1.4 | 2–3 天 |
-| P4 二期 | 交互式 turn/审批/ask（§22.15） | 可写 Web | 另立规格 |
+| P4 交互执行 | 直接 turn/停止/审批/ask + SSE（§22.15） | 已实现 | 后续打磨 |
 
-建议顺序：先把 **P0+P1** 做成可演示的只读历史，再决定 P2 的右栏是否需要文件树。不要一开始做交互式，否则锁、审批、SSE 双向通道会把一期拖成两个月。
+建议顺序：先保持 **P0+P1** 历史浏览稳定，再叠加交互执行。交互层只通过 `web.Executor` 与 SSE 扩展，不把 agent/tool 依赖直接引入 Web 包，避免锁、审批和 SSE 改造污染读路径。
 
 ## 22.13 设计决策与权衡
 
 | ID | 决策 | 主要理由 | 未采用的备选 |
 | --- | --- | --- | --- |
-| D48 | `ant serve` 一期**只读**：只展示历史，不发消息、不审批、不新建 | 不取 session 锁、无写接口、无 CSRF、无审批桥；历史是需求核心；可快速交付 | 一步做完整交互（锁冲突、审批超时、断线重连复杂）；桌面端（跨平台成本高） |
-| D49 | **无账号 + 只监听回环**；不加登录页、不加 Cookie 身份 | 本地单用户；账号对本地只读没有安全收益；避免“登录墙”与密钥托管 | URL token（可作为多用户主机的可选二期）；OAuth/账号（违背需求）；远程访问（无 TLS/认证，不做） |
+| D48 | `ant serve` **读路径只读 + 显式提交才执行**。历史上线后升级为直接 turn/停止/审批/ask | 浏览不取锁；提交走锁与 CSRF 防护；SSE 单通道推送实时状态；复用 CLI 组合根 | 远程多用户、无审批自动执行、父子进程管道方案 |
+| D49 | **无账号 + 只监听回环**；不加登录页、不加 Cookie 身份 | 本地单用户；账号对本地执行没有安全收益；写接口用同源/自定义头防护；避免“登录墙”与密钥托管 | URL token（可作为多用户主机的可选二期）；OAuth/账号（违背需求）；远程访问（无 TLS/认证，不做） |
 | D50 | 事件投影，**不建数据库/索引** | `events.jsonl` 已是事实来源（[D18](17-adr.md#19-设计决策记录adr)）；只读投影无同步问题；与现有恢复/审计共用数据 | SQLite 索引（依赖、双写、迁移）；预生成 snapshot（版本/失效复杂） |
 | D51 | 前端**零构建**：原生 ES Modules + 本地 vendor（daisyUI/htmx/Alpine）+ Go `embed` | 单二进制、无 Node 构建依赖、离线可用；daisyUI 提供视觉组件，htmx 负责服务端片段，Alpine 负责局部外壳状态 | React/Vite（构建链、依赖、包体）；全量服务端模板（复杂轨迹/差异化渲染成本高） |
 | D52 | **单 workspace + home 白名单**，不做跨项目扫描 | 与 §9.8 一致；隐私与性能可控；避免把 home 变成任意文件服务器 | 工作区切换器（扫描磁盘）；多 workspace 聚合（隐私/权限复杂） |
@@ -1471,9 +1525,9 @@ Cross-Origin-Resource-Policy: same-origin
 
 **为什么不用 `file://` 打开**：ES Modules、fetch、SSE 都受同源限制；`file://` 无法稳定工作。
 
-**为什么不在 serve 里直接 `Store.Open`**：会创建 artifacts 目录、可能取锁；只读服务不应有副作用。`Archive` 是更小的读面。
+**为什么浏览路径不在 serve 里直接 `Store.Open`**：会创建 artifacts 目录、可能取锁；历史读取不应有副作用。`Archive` 是更小的读面；执行提交才由 Executor 使用 `Store.Open`。
 
-**为什么不做 WebSocket**：一期只需要“有变化”通知，SSE 足够且是单向的；二期交互再评估 WebSocket 或 fetch streaming。
+**为什么不做 WebSocket**：事件/增量/审批都是服务端到浏览器的主通道，用户回答用普通 POST 即可；SSE 足够且更简单。真需要双向二进制流时再评估 WebSocket。
 
 ### 22.13.2 风险与缓解
 
@@ -1503,14 +1557,15 @@ Cross-Origin-Resource-Policy: same-origin
 | R-WEB-14 | §22.6.7 | SSE 测试 |
 | R-WEB-15/16 | §22.4.8 | 手工/可访问性检查 |
 | R-WEB-23 | §22.7、§22.11 | 静态资源扫描 + htmx 片段测试 |
-| R-WEB-24 | §22.4.3、§22.10.5 | composer 命令生成/复制 + 无写接口测试 |
+| R-WEB-24 | §22.4.3、§22.6.7 | composer 直接 POST + SSE 更新测试 |
+| R-WEB-25/26/27 | §22.10.5、§22.15 | 写接口防护、锁冲突、停止、审批/ask 测试 |
 | R-WEB-22 | §22.11 | `go test ./...` |
 
-## 22.15 二期：交互式 Web（预留设计）
+## 22.15 交互式 Web（已实现基础闭环）
 
-一期只读已经满足“看清楚历史”；如果后续要在 Web 里继续对话，按下面扩展，不推翻一期接口。
+历史浏览接口保持不变；在 Web 里继续对话通过下列写接口、执行器和 SSE 扩展实现。
 
-### 22.15.1 新接口
+### 22.15.1 交互接口
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
@@ -1521,7 +1576,7 @@ Cross-Origin-Resource-Policy: same-origin
 | POST | `/api/asks/{id}` | 回答 `ask`（`{answer, selectedId}`） |
 | GET | `/api/sessions/{id}/stream` | SSE 增加事件类型：`delta`/`tool`/`approval`/`ask`/`turn`；客户端通过上面的 POST 回答，不是双向 SSE |
 
-### 22.15.2 写接口的本地防护
+### 22.15.2 写接口的本地防护（已实现）
 
 即使“无账号”，写接口也必须防浏览器跨站触发：
 
@@ -1532,7 +1587,7 @@ Cross-Origin-Resource-Policy: same-origin
 - 不使用 Cookie 身份；不引入 CSRF token（无会话身份，CSRF token 无意义）；
 - 仍只监听回环。
 
-### 22.15.3 运行器与审批桥
+### 22.15.3 运行器与审批桥（已实现）
 
 - 把 `cli.openAndWire` 拆成可复用的 `internal/runner`（或 `cli` 内部的 `wireRuntime`），让 CLI 与 Web 共用：
   - `agent.Deps.OnDelta` → SSE `delta`/`reasoning`；
@@ -1542,15 +1597,15 @@ Cross-Origin-Resource-Policy: same-origin
 - session 锁：`Store.Open(ctx, session.OpenOptions{ID: id, Lock: true})`；若 CLI 正在运行，返回 409 + 锁的 PID/host，不抢占。
 - 崩溃恢复：继续复用 [§9.6](07-session.md#96-断点续传算法)；Web 只负责展示恢复决策。
 
-### 22.15.4 二期 UI
+### 22.15.4 交互 UI（已实现）
 
-- 底部输入框恢复：多行、发送/停止、`@` 文件、`/` 命令（先支持 `/new`、`/mode`）；
+- 底部输入框：多行、发送/停止；`@` 文件、`/` 命令可作为后续增强；
 - 审批卡变为可操作：允许一次/本 session/拒绝；
 - `ask` 卡变为选项按钮 + 自由文本；
 - 运行中支持排队/插话（可先只做“排队”，不做插话）；
 - 仍然没有账号/登录/云同步。
 
-### 22.15.5 二期的测试重点
+### 22.15.5 交互测试重点（已实现）
 
 - 锁冲突：CLI 持锁时 Web 发送返回 409，且不破坏 CLI；
 - 审批超时/断线：不会永久挂起；按拒绝写入事件；

@@ -2,7 +2,7 @@
 
 > 适用模块：[§20 本地 Web 服务](20-web-serve.md)（`ant serve`）。
 >
-> 本文记录前端三项技术的版本、本地加载方式、职责边界、代码范式与安全约束。目标不是介绍三个库的完整 API，而是说明在 `ant` 这个**零构建、单二进制、本地只读**页面中怎么用、为什么这样用、以及扩展时不要踩哪些坑。
+> 本文记录前端三项技术的版本、本地加载方式、职责边界、代码范式与安全约束。目标不是介绍三个库的完整 API，而是说明在 `ant` 这个**零构建、单二进制、本地回环交互**页面中怎么用、为什么这样用、以及扩展时不要踩哪些坑。
 
 ## 1. 技术栈与文件
 
@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | daisyUI | 5.8.2 | `internal/web/static/assets/daisyui@5.css` | 按钮、输入框、下拉、badge、loading、modal 等组件与主题色变量 |
 | htmx | 2.0.11 | `internal/web/static/assets/htmx.min.js` | 左栏会话列表、左下角状态卡的 HTML 片段刷新 |
-| Alpine.js | 3.17.5 | `internal/web/static/assets/alpinejs@3.js` | 三栏外壳状态、移动端抽屉、composer、折叠、主题/模型下拉绑定 |
+| Alpine.js | 3.17.5 | `internal/web/static/assets/alpinejs@3.js` | 三栏外壳状态、移动端抽屉、composer 提交/停止/运行态、折叠、主题/模型下拉绑定 |
 | 原生 ES Modules | 浏览器内置 | `app.js`、`render.js` 等 | 复杂会话/轨迹渲染、hash 路由、fetch、SSE、键盘快捷键 |
 
 不引入 Node、npm、Vite、Webpack，也不访问 CDN。所有 vendor 文件通过 Go `//go:embed static` 打进 `ant` 二进制。
@@ -102,7 +102,7 @@ function applyTheme() {
 | --- | --- | --- |
 | Button | `btn btn-primary btn-circle btn-sm` | composer 发送按钮、对话框关闭按钮 |
 | Outline button | `btn btn-outline btn-sm` | 左栏“创建会话” |
-| Badge | `badge badge-sm` | mode、只读提示、状态 badge |
+| Badge | `badge badge-sm` | mode、运行/交互提示、状态 badge |
 | Input | `input input-sm` | 左栏搜索框 |
 | Select | `select select-xs` | mode/status 过滤、composer mode/model |
 | Textarea | 自定义 `.composer-input` + daisyUI 基础 | 中栏输入框 |
@@ -127,11 +127,11 @@ daisyUI 的规则位于 cascade layer（`@layer daisyui.*`）。`app.css` 中未
 | 方法 | 路由 | 返回 | 用途 |
 | --- | --- | --- | --- |
 | GET | `/ui/sessions?q=&mode=&status=&limit=` | `text/html; charset=utf-8` | 左栏会话列表片段 |
-| GET | `/ui/status` | `text/html; charset=utf-8` | 左下角“本地模式 · 只读”状态卡 |
+| GET | `/ui/status` | `text/html; charset=utf-8` | 左下角“本地交互 · 可执行”状态卡 |
 
 两个端点都：
 
-- 只读，无写副作用；
+- GET、无写副作用；
 - 使用 `Cache-Control: no-store`；
 - 动态文本由 Go `html.EscapeString` 转义；
 - 与 JSON API 使用同一个 `Projector.List` 数据源，不维护第二套业务状态机。
@@ -230,6 +230,9 @@ window.Alpine.data('antShell', () => ({
   composerModel: '',
   draft: '',
   hasSession: false,
+  submitting: false,
+  running: false,
+  stopping: false,
   sidebarCollapsed: state.ui.sidebarCollapsed,
   rightOpen: state.ui.rightOpen,
   mobileSidebarOpen: false,
@@ -237,8 +240,9 @@ window.Alpine.data('antShell', () => ({
   init() { return boot(this); },
   toggleSidebar() { /* 折叠/移动端抽屉 */ },
   createSession() { /* 回到空态并聚焦 composer */ },
-  copyCommand() { /* 复制终端命令，不发 POST */ },
-  composerHint() { /* 根据 hasSession/draft 生成提示 */ },
+  async submitTurn() { /* POST 创建/续跑并执行，成功后清空 draft */ },
+  async stopTurn() { /* POST cancel 当前 run */ },
+  composerHint() { /* 根据 running/submitting/draft 生成提示 */ },
 }));
 ```
 
@@ -252,7 +256,7 @@ window.Alpine.data('antShell', () => ({
 | `x-model` | composer mode/model/draft |
 | `x-for` | 生成 mode/model 下拉选项 |
 | `:class` | 侧栏折叠、移动端抽屉、右栏关闭状态 |
-| `@click` | 折叠、创建会话、复制命令、打开移动端侧栏 |
+| `@click` | 折叠、创建会话、提交/停止 turn、打开移动端侧栏 |
 | `x-cloak` | 防止 Alpine 初始化前闪现未绑定布局 |
 
 `x-cloak` 对应 CSS：
@@ -267,7 +271,7 @@ Alpine 只管理**外壳交互状态**：
 
 - 侧栏折叠/移动端抽屉；
 - 右栏开关的显示类；
-- composer 的 mode、model、draft；
+- composer 的 mode、model、draft、submitting/running/stopping；
 - 版本号、模型别名选项等轻量展示字段。
 
 会话详情、turn 列表、轨迹行、diff 等大对象保留在 `app.js` 的普通 `state` 中，由 `render.js` 命令式渲染。这样避免：
@@ -284,6 +288,7 @@ Alpine 只管理**外壳交互状态**：
 function syncComposerForRoute() {
   const shell = state.shell;
   shell.hasSession = Boolean(state.session && state.route.name === 'session');
+  shell.running = Boolean(state.runActive);
   if (shell.hasSession) {
     shell.composerMode = state.session.meta.mode || shell.composerMode;
     shell.composerModel = state.session.meta.model || shell.composerModel;
@@ -302,7 +307,7 @@ Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'se
   form-action 'none'; frame-ancestors 'none'
 ```
 
-这是当前本地单用户、只读页面接受的权衡。约束仍然保留：
+这是当前本地单用户、回环服务接受的权衡。约束仍然保留：
 
 - 不加载 CDN 脚本；
 - `x-*` 表达式只存在于仓库内静态 `index.html`，不由模型/会话内容生成；
@@ -341,7 +346,8 @@ JSON API + render.js ◄────┘
 | 频繁局部交互、纯客户端 UI 状态 | Alpine |
 | 复杂结构化历史、diff、轨迹、检查器 | JSON API + `render.js` |
 | 实时“有新事件”通知 | SSE（`EventSource`）+ ETag 重取 |
-| 写操作 | v1.4 不提供；二期再设计 runner/锁/审批桥 |
+| 流式助手文本/审批/ask | SSE 具名事件 + 前端临时 DOM 更新 |
+| 写操作 | `POST /api/sessions*` + Executor 注入；session 锁、停止、审批/ask 队列 |
 
 ## 7. 安全约束
 
@@ -353,23 +359,29 @@ JSON API + render.js ◄────┘
 - 不在 htmx 片段中直接嵌入模型生成内容；
 - Alpine 表达式只写在静态模板中，不拼接用户字符串。
 
-### 7.2 请求
+### 7.2 请求与写接口
 
 - `/ui/*` 仅 GET；
-- 无写接口、无 Cookie 身份、无 CORS；
+- 历史读取无写副作用；无 Cookie 身份、无 CORS；
 - Host 校验、路径校验、响应头由 Go 中间件统一处理；
-- htmx 表单不会触发浏览器原生提交（只有 `hx-get`）。
+- htmx 表单不会触发浏览器原生提交（只有 `hx-get`）；
+- 写接口要求 `Content-Type: application/json`、`X-ANT-Request: 1`，并校验 `Origin`/`Sec-Fetch-Site`；请求体上限 1 MiB；
+- 同一 session 只允许一个 Web 活动 turn；锁冲突返回 409；
+- 审批/ask 回答同样走受保护的 POST，不通过 EventSource 回传。
 
-### 7.3 只读
+### 7.3 交互执行
 
-composer 的发送按钮只是复制命令：
+composer 是真实提交入口：
 
 ```text
-新会话：ant new -m <mode> -p <model> '<输入>'
-续跑：  ant -s <session-id> -m <mode> -p <model> '<输入>'
+新会话：POST /api/sessions              {input, mode, model}
+续跑：  POST /api/sessions/{id}/turns   {input, mode, model}
+停止：  POST /api/sessions/{id}/cancel
+审批：  POST /api/approvals/{promptId}  {decision}
+ask：   POST /api/asks/{promptId}       {selectedId, text}
 ```
 
-不调用 `POST /api/sessions`、`POST /api/sessions/{id}/turns`，不写 session/meta/events/artifact，不抢锁。
+服务端由 `internal/cli/webrunner.go` 复用 CLI 组合根取锁、恢复并执行 turn；浏览器只负责提交意图和展示 SSE 事件。最终内容仍以 `events.jsonl` 投影为准。
 
 ## 8. 开发与测试
 
@@ -400,9 +412,10 @@ curl -s http://127.0.0.1:7788/ui/status
 `internal/web/routes_test.go` 覆盖：
 
 - `/ui/sessions` 的 HTML/转义、过滤与非法 mode；
-- `/ui/status` 的只读状态卡字段；
+- `/ui/status` 的本地交互状态卡字段；
 - 静态资源 304；
-- Host 校验、CSP、无写方法；
+- Host 校验、CSP、写接口防护（JSON/自定义头/Origin）；
+- 新建/续跑、SSE delta/run_done、取消、审批/ask roundtrip；
 - 无账号 UI 静态扫描。
 
 运行：
@@ -416,7 +429,7 @@ GOCACHE=/tmp/gocache go test ./internal/web
 1. 首屏加载后左栏出现 htmx 会话列表，底部状态卡出现 workspace/版本/监听地址；
 2. 输入搜索或切换 mode/status 时列表局部刷新，不整页刷新；
 3. 点击会话后中/右栏由 JSON API 渲染，composer 显示当前 session 的 mode/model；
-4. 输入 composer 内容后点击发送或 `Ctrl/⌘+Enter`，只复制终端命令并出现 toast；
+4. 输入 composer 内容后按 Enter 或点击发送：直接创建/续跑执行；SSE 实时显示增量与状态；运行中可停止；审批/ask 卡片可操作；
 5. 关闭 JavaScript 时显示 noscript 提示；
 6. 浏览器 Console 不应出现 CSP/EvalError；若出现，检查 CSP 是否包含 `'unsafe-eval'`（Alpine 标准构建）。
 
@@ -439,19 +452,21 @@ GOCACHE=/tmp/gocache go test ./internal/web
 4. 若来自 async API，显式在 `syncShell()`、`syncComposerForRoute()` 或对应回调中赋值；
 5. 不要用 `innerHTML` 拼接服务端文本。
 
-### 9.3 二期交互式 Web 的边界
+### 9.3 交互执行的扩展边界
 
-二期若要真正提交消息：
-
-- 需要新增 POST 路由、SSE 双向事件与 session 锁；
-- 需要 runner、审批桥、`ask` 队列、CSRF/Origin 校验；
-- composer 应从“复制命令”升级为“提交 turn / 停止 turn”；
-- 此时仍建议保留 htmx 管理简单的列表/状态，Alpine 管理外壳，复杂轨迹继续走 JSON + `render.js`。
+- 新增写操作必须复用 `runManager` 的单 session 活动 run 约束，不能绕开 `Store.Open(..., Lock:true)`；
+- 新的 SSE 事件应保持“临时通知/增量 + 权威投影重取”分层，不把投影状态机复制到前端；
+- 审批/ask 队列必须带超时与取消清理，避免浏览器关闭后永久挂起；
+- 仍建议保留 htmx 管理简单列表/状态，Alpine 管理外壳，复杂轨迹继续走 JSON + `render.js`；
+- 远程多用户、token、无审批自动执行不在当前接口承诺内。
 
 ## 10. 相关文件
 
 | 文件 | 说明 |
 | --- | --- |
+| `internal/web/runs.go` | 活动 run、SSE 订阅、审批/ask 队列 |
+| `internal/web/runs_http.go` | 写接口与同源/CSRF 防护 |
+| `internal/cli/webrunner.go` | Web 执行器，复用 CLI 组合根 |
 | `internal/web/static/index.html` | daisyUI/Alpine/htmx 页面骨架 |
 | `internal/web/static/assets/app.css` | ant 主题与业务样式 |
 | `internal/web/static/assets/app.js` | Alpine 根组件、路由、API、SSE |

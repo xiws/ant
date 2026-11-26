@@ -32,6 +32,11 @@ type Overrides struct {
 	HomeDir   string
 	WorkDir   string // 测试用：默认当前目录
 	Config    config.View
+	// OnDelta 接收模型流式文本；Web 用它把增量推给浏览器。
+	OnDelta func(text, reasoning string)
+	// SkipResume 让 Web 的显式新输入直接开新 turn，而不是先自动重试
+	// 上一次 failed/interrupted turn。CLI 保持原断点续跑语义。
+	SkipResume bool
 }
 
 // Renderer 是唯一接触终端输出的接口。

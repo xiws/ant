@@ -84,6 +84,8 @@ internal/cli/subcommands.go
 internal/cli/trace_render.go
 internal/cli/trace_render_test.go
 internal/cli/verbose_test.go
+internal/cli/webrunner.go
+internal/cli/webrunner_test.go
 internal/config/
 internal/config/config.go
 internal/config/defaults.go
@@ -137,9 +139,7 @@ internal/provider/
 internal/provider/client.go
 internal/provider/factory.go
 internal/provider/fallback.go
-internal/provider/openai.go
-internal/provider/openai_test.go
-...（已省略 77 项）
+...（已省略 83 项）
 ```
 
 ## 入口

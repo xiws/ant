@@ -14,11 +14,25 @@ export class ApiError extends Error {
 }
 
 async function request(path, options = {}) {
-  const headers = {};
+  const headers = { ...(options.headers || {}) };
   if (options.etag) headers['If-None-Match'] = options.etag;
+  let body = options.body;
+  if (body !== undefined && typeof body !== 'string') {
+    body = JSON.stringify(body);
+  }
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    headers['X-ANT-Request'] = '1';
+  }
   let response;
   try {
-    response = await fetch(path, { headers, cache: 'no-store', credentials: 'omit' });
+    response = await fetch(path, {
+      method: options.method || 'GET',
+      headers,
+      body,
+      cache: 'no-store',
+      credentials: 'omit',
+    });
   } catch (err) {
     throw new ApiError({ error: { class: 'network', code: 'fetch_failed', message: `无法连接本地服务：${err.message}` } }, 0);
   }
@@ -57,6 +71,25 @@ export const api = {
   },
   session(id, params, etag) {
     return request(`/api/sessions/${encodeURIComponent(id)}${query(params)}`, { etag });
+  },
+  startSession(payload) {
+    return request('/api/sessions', { method: 'POST', body: payload }).then((r) => r.data);
+  },
+  startTurn(id, payload) {
+    return request(`/api/sessions/${encodeURIComponent(id)}/turns`, { method: 'POST', body: payload }).then((r) => r.data);
+  },
+  cancelTurn(id) {
+    return request(`/api/sessions/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: {} }).then((r) => r.data);
+  },
+  approve(promptId, decision) {
+    return request(`/api/approvals/${encodeURIComponent(promptId)}`, {
+      method: 'POST', body: { decision },
+    }).then((r) => r.data);
+  },
+  answerAsk(promptId, payload) {
+    return request(`/api/asks/${encodeURIComponent(promptId)}`, {
+      method: 'POST', body: payload,
+    }).then((r) => r.data);
   },
   events(id, after) {
     return request(`/api/sessions/${encodeURIComponent(id)}/events${query({ after })}`).then((r) => r.data);
@@ -116,6 +149,22 @@ export const api = {
       source.addEventListener('ping', () => {
         if (handlers.onPing) handlers.onPing();
       });
+      for (const [name, handler] of [
+        ['status', 'onStatus'],
+        ['event', 'onEvent'],
+        ['delta', 'onDelta'],
+        ['reasoning', 'onReasoning'],
+        ['approval', 'onApproval'],
+        ['ask', 'onAsk'],
+        ['run_done', 'onRunDone'],
+        ['run_error', 'onRunError'],
+      ]) {
+        source.addEventListener(name, (event) => {
+          let payload = {};
+          try { payload = JSON.parse(event.data); } catch (_) { payload = {}; }
+          if (handlers[handler]) handlers[handler](payload);
+        });
+      }
       source.onerror = () => {
         if (source) source.close();
         source = null;

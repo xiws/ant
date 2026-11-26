@@ -122,7 +122,7 @@ func (s *Server) handleUISessions(w http.ResponseWriter, r *http.Request) {
 		if query.Get("q") != "" || mode != "" || status != "" {
 			b.WriteString(`<div class="empty-state"><p>没有匹配的会话</p><p class="small muted">调整搜索条件，或清空筛选。</p></div>`)
 		} else {
-			b.WriteString(`<div class="empty-state"><p>当前 workspace 还没有会话</p><p class="small muted">在终端运行 <code>ant "你的任务"</code> 创建第一个会话。</p></div>`)
+			b.WriteString(`<div class="empty-state"><p>当前 workspace 还没有会话</p><p class="small muted">在下方输入框描述任务，按 Enter 直接创建并执行。</p></div>`)
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -141,7 +141,7 @@ func (s *Server) handleUIStatus(w http.ResponseWriter, r *http.Request) {
 	workspace := html.EscapeString(s.deps.WorkDir)
 	host := html.EscapeString(r.Host)
 	var b strings.Builder
-	b.WriteString(`<div class="local-card"><div class="local-status-line"><span class="status-dot running" aria-hidden="true"></span><strong>本地模式 · 只读</strong></div>`)
+	b.WriteString(`<div class="local-card"><div class="local-status-line"><span class="status-dot running" aria-hidden="true"></span><strong>本地交互 · 可执行</strong></div>`)
 	fmt.Fprintf(&b, `<div class="path" title="%s">%s</div>`, workspace, workspace)
 	fmt.Fprintf(&b, `<div class="local-meta"><span>ant %s</span><span>·</span><span>%s</span></div>`, html.EscapeString(version), host)
 	b.WriteString(`<div class="local-actions"><button class="btn btn-xs" type="button" data-action="local-config">本机配置</button><button class="btn btn-xs" type="button" data-action="settings">设置</button></div></div>`)

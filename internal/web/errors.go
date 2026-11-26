@@ -72,6 +72,8 @@ func statusForCode(code string) int {
 		return http.StatusNotFound
 	case code == "session_too_large", code == "artifact_too_large", code == "file_too_large":
 		return http.StatusRequestEntityTooLarge
+	case code == "session_locked", code == "run_active", code == "approval_already_resolved", code == "ask_already_resolved":
+		return http.StatusConflict
 	}
 	if strings.HasSuffix(code, "_too_large") {
 		return http.StatusRequestEntityTooLarge
@@ -95,6 +97,10 @@ func (e *apiErr) httpStatus() int {
 		return http.StatusRequestEntityTooLarge
 	case "unavailable":
 		return http.StatusServiceUnavailable
+	case "conflict":
+		return http.StatusConflict
+	case "forbidden":
+		return http.StatusForbidden
 	}
 	if strings.HasSuffix(e.code, "_too_large") {
 		return http.StatusRequestEntityTooLarge
@@ -145,6 +151,21 @@ func notFound(code, message string) *apiErr {
 // unavailable 构造 503。
 func unavailable(code, message string) *apiErr {
 	return &apiErr{class: "unavailable", code: code, message: message, status: http.StatusServiceUnavailable}
+}
+
+// conflict 构造 409，用于 session 锁冲突、重复运行等并发错误。
+func conflict(code, message string) *apiErr {
+	return &apiErr{class: "conflict", code: code, message: message, status: http.StatusConflict}
+}
+
+// forbidden 构造 403。
+func forbidden(code, message string) *apiErr {
+	return &apiErr{class: "forbidden", code: code, message: message, status: http.StatusForbidden}
+}
+
+// unsupportedMediaType 构造 415。
+func unsupportedMediaType(code, message string) *apiErr {
+	return &apiErr{class: "bad_request", code: code, message: message, status: http.StatusUnsupportedMediaType}
 }
 
 // tooLarge 构造 413。

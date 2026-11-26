@@ -135,8 +135,8 @@ func TestServeStartsAndStopsGracefully(t *testing.T) {
 	if !strings.Contains(text, "workspace: "+work) {
 		t.Fatalf("output missing workspace: %q", text)
 	}
-	if !strings.Contains(text, "只读模式") || !strings.Contains(text, "无需登录") {
-		t.Fatalf("output missing readonly hint: %q", text)
+	if !strings.Contains(text, "本地交互模式") || !strings.Contains(text, "无需登录") {
+		t.Fatalf("output missing interactive hint: %q", text)
 	}
 	if !strings.Contains(text, "home:      "+home) {
 		t.Fatalf("output missing home: %q", text)

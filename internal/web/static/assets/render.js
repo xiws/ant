@@ -21,7 +21,7 @@ export function renderSessionHeader(view, ctx) {
     el('div', { class: 'actions' }, [
       copyButton(meta.id || '', '复制 ID'),
       el('button', {
-        class: 'btn small', type: 'button', text: '刷新', title: '刷新（不会写入任何文件）',
+        class: 'btn small', type: 'button', text: '刷新', title: '重新加载服务端权威投影',
         onclick: () => ctx.onRefresh && ctx.onRefresh(),
       }),
       el('button', {
@@ -65,7 +65,7 @@ export function renderChat(view, ctx) {
   if (turns.length === 0) {
     container.appendChild(el('div', { class: 'empty-state' }, [
       el('p', { text: '这个 session 还没有事件。' }),
-      el('p', { class: 'small muted', text: '在终端继续对话后，刷新页面即可看到内容。' }),
+      el('p', { class: 'small muted', text: '在下方输入框发送消息即可直接开始执行。' }),
     ]));
     return container;
   }
@@ -822,15 +822,14 @@ export function renderEmptyMain(sessions) {
   if (!sessions || sessions.length === 0) {
     wrap.appendChild(el('div', { class: 'empty-state' }, [
       el('h2', { text: '当前 workspace 还没有 session' }),
-      el('p', { text: '在终端运行：' }),
-      el('p', {}, el('code', { text: 'ant "你的任务"' })),
-      el('p', { class: 'small muted', text: '会话创建后，刷新此页面即可浏览。' }),
+      el('p', { text: '在下方输入框描述任务，按 Enter 即可直接创建 session 并执行。' }),
+      el('p', { class: 'small muted', text: '执行过程通过 SSE 实时更新，结束后会显示完整历史投影。' }),
     ]));
     return wrap;
   }
   wrap.appendChild(el('div', { class: 'empty-state' }, [
     el('h2', { text: '选择一个会话' }),
-    el('p', { class: 'small muted', text: '左栏列出了当前 workspace 的会话历史；ant serve 一期只读。' }),
+    el('p', { class: 'small muted', text: '选择左栏会话继续执行，或直接在下方输入新任务。' }),
   ]));
   return wrap;
 }
@@ -992,7 +991,7 @@ export function renderSettings(health, ui, ctx) {
       el('dt', { text: 'Workspace' }), el('dd', { class: 'code', text: health.workspace || '' }),
       el('dt', { text: 'Home' }), el('dd', { class: 'code', text: health.home || '' }),
       el('dt', { text: '监听' }), el('dd', { class: 'code', text: window.location.origin }),
-      el('dt', { text: '模式' }), el('dd', { text: '只读 · 仅回环 · 本地单用户' }),
+      el('dt', { text: '模式' }), el('dd', { text: '本地交互 · 仅回环 · 本地单用户' }),
     ]),
   ]));
   wrap.appendChild(el('div', { class: 'dialog-section' }, [

@@ -13,13 +13,18 @@ import (
 	"github.com/xiws/ant/internal/session"
 )
 
-// registerRoutes 注册全部只读路由；一期没有任何 POST/PUT/PATCH/DELETE。
+// registerRoutes 注册历史读取路由与受保护的交互执行路由。
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/sessions", s.handleSessions)
 	s.mux.HandleFunc("GET /api/sessions/{id}", s.handleSession)
 	s.mux.HandleFunc("GET /api/sessions/{id}/events", s.handleSessionEvents)
 	s.mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleStream)
+	s.mux.HandleFunc("POST /api/sessions", s.handleCreateRun)
+	s.mux.HandleFunc("POST /api/sessions/{id}/turns", s.handleSessionTurn)
+	s.mux.HandleFunc("POST /api/sessions/{id}/cancel", s.handleCancelRun)
+	s.mux.HandleFunc("POST /api/approvals/{id}", s.handleApproval)
+	s.mux.HandleFunc("POST /api/asks/{id}", s.handleAsk)
 	s.mux.HandleFunc("GET /api/sessions/{id}/artifacts/{path...}", s.handleArtifact)
 	s.mux.HandleFunc("GET /api/sessions/{id}/plan", s.handlePlan)
 	s.mux.HandleFunc("GET /api/workspace/file", s.handleWorkspaceFile)
@@ -34,7 +39,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/", s.handleFallback)
 }
 
-// handleFallback 处理 SPA 路由与未知 API（只读，不提供写方法）。
+// handleFallback 处理 SPA 路由与未知 API/Method。
 func (s *Server) handleFallback(w http.ResponseWriter, r *http.Request) {
 	isAPI := strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/api"
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -42,7 +47,7 @@ func (s *Server) handleFallback(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, &apiErr{
 			class:   "bad_request",
 			code:    "method_not_allowed",
-			message: "ant serve 一期只读，只接受 GET/HEAD",
+			message: "未知写路径或方法不允许；历史读取使用 GET/HEAD",
 			status:  http.StatusMethodNotAllowed,
 		})
 		return
@@ -60,11 +65,12 @@ func (s *Server) handleFallback(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, HealthResponse{
-		OK:        true,
-		Version:   s.deps.Version,
-		Workspace: s.deps.WorkDir,
-		Home:      s.deps.HomeDir,
-		Readonly:  true,
+		OK:          true,
+		Version:     s.deps.Version,
+		Workspace:   s.deps.WorkDir,
+		Home:        s.deps.HomeDir,
+		Readonly:    s.runs == nil,
+		Interactive: s.runs != nil,
 	})
 }
 

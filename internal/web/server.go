@@ -18,19 +18,21 @@ import (
 
 // Deps 是 Web 服务的显式依赖，全部由组合根注入。
 type Deps struct {
-	WorkDir string
-	HomeDir string
-	Config  config.View // 可为 nil：配置非法时仍可浏览历史
-	Archive session.Archive
-	Clock   func() time.Time
-	Logger  logx.Logger
-	Version string
+	WorkDir  string
+	HomeDir  string
+	Config   config.View // 可为 nil：配置非法时仍可浏览历史
+	Archive  session.Archive
+	Executor Executor // 可为 nil：此时只提供历史只读浏览
+	Clock    func() time.Time
+	Logger   logx.Logger
+	Version  string
 }
 
-// Server 是本地只读 Web 服务。
+// Server 是本地 Web 服务；浏览只读，用户提交后可通过注入的 Executor 执行 turn。
 type Server struct {
 	deps      Deps
 	projector *Projector
+	runs      *runManager
 	mux       *http.ServeMux
 	assets    map[string]staticAsset
 	streams   atomic.Int32
@@ -68,6 +70,9 @@ func New(deps Deps) (*Server, error) {
 		mux:       http.NewServeMux(),
 		assets:    assets,
 	}
+	if deps.Executor != nil {
+		server.runs = newRunManager(deps.Executor, deps.Clock, deps.Logger)
+	}
 	server.registerRoutes()
 	return server, nil
 }
@@ -103,6 +108,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 	select {
 	case <-ctx.Done():
+		if s.runs != nil {
+			s.runs.Close()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdownCtx)

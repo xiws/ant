@@ -1,7 +1,7 @@
-// Package web 实现本地只读 Web 服务（docs/20-web-serve.md §22）。
+// Package web 实现本地 Web 服务（docs/20-web-serve.md §22）。
 //
-// 它只依赖 session 的只读归档与 config.View；不 import cli/agent/tool，
-// 也不写任何 session、meta、events、artifact 或 workspace 文件。
+// 历史读取只依赖 session.Archive/config.View；交互执行通过 Executor 接口
+// 由组合根注入，Web 包本身不 import cli/agent/tool 实现。
 package web
 
 import (
@@ -379,11 +379,12 @@ type TrajRow struct {
 
 // HealthResponse 是 GET /api/health 的响应。
 type HealthResponse struct {
-	OK        bool   `json:"ok"`
-	Version   string `json:"version"`
-	Workspace string `json:"workspace"`
-	Home      string `json:"home"`
-	Readonly  bool   `json:"readonly"`
+	OK          bool   `json:"ok"`
+	Version     string `json:"version"`
+	Workspace   string `json:"workspace"`
+	Home        string `json:"home"`
+	Readonly    bool   `json:"readonly"`
+	Interactive bool   `json:"interactive"`
 }
 
 // ConfigResponse 是 GET /api/config 的脱敏投影。

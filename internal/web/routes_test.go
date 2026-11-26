@@ -140,14 +140,14 @@ func TestRoutesHealthAndSecurity(t *testing.T) {
 		t.Fatalf("evil host status = %d, want 403", resp.StatusCode)
 	}
 
-	// 非 GET 一律 405（一期没有写接口）。
+	// 未注入执行器时写接口明确返回 503；无 X-ANT-Request 的跨站式请求也绝不能执行。
 	postResp, err := http.Post(ts.URL+"/api/sessions", "application/json", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	postResp.Body.Close()
-	if postResp.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("POST status = %d, want 405", postResp.StatusCode)
+	if postResp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("POST status = %d, want 503", postResp.StatusCode)
 	}
 }
 
@@ -463,7 +463,7 @@ func TestRoutesUIFragments(t *testing.T) {
 	}
 	statusBody, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(statusBody), "本地模式 · 只读") ||
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(statusBody), "本地交互 · 可执行") ||
 		!strings.Contains(string(statusBody), work) || !strings.Contains(string(statusBody), `data-action="local-config"`) {
 		t.Fatalf("ui status = %d %s", resp.StatusCode, statusBody)
 	}
@@ -538,6 +538,10 @@ func TestRoutesChatLayoutAssets(t *testing.T) {
 		},
 		"/assets/app.css": {
 			".chat-user-bubble", ".chat-divider", ".turn-status", ".turn-process", ".chat-assistant-footer",
+			".live-prompt", ".streaming-assistant",
+		},
+		"/assets/app.js": {
+			"submitTurn", "startSession", "startTurn", "stopTurn", "onDelta", "onApproval", "onAsk", "composerKeydown",
 		},
 	} {
 		resp, err := http.Get(ts.URL + path)
