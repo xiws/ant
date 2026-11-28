@@ -63,6 +63,12 @@ type App struct {
 	projectMu  sync.RWMutex
 	projectDoc prompt.ProjectDoc
 
+	// sigCh 由进程入口注入；App.Run 直接调用时为空（不接管信号，便于测试）。
+	sigCh chan os.Signal
+	// lastTurnInterrupted 记录最近一次完成的 turn 是否由用户中断，
+	// 供 REPL 在 Ctrl-C 退出时选择 0/3 退出码。
+	lastTurnInterrupted bool
+
 	fallbackWorkDir string
 	workDirOverride string
 	homeDirOverride string
@@ -77,18 +83,59 @@ func Run(ctx context.Context, args []string, stdio Stdio) int {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	stdio = normalizeStdio(stdio)
 
-	app, err := New(ctx, args, stdio, Overrides{})
+	// SIGINT/SIGTERM 只捕获一次，初始化阶段用于取消装配，进入 App.Run 后
+	// 由 App 按“取消当前 turn”或“在提示符处退出”的语义处理，不能永久取消根 ctx。
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	setupCtx, cancelSetup := context.WithCancel(ctx)
+	defer cancelSetup()
+	setupDone := make(chan struct{})
+	go func() {
+		select {
+		case <-sigCh:
+			cancelSetup()
+		case <-setupDone:
+		}
+	}()
+	app, err := New(setupCtx, args, stdio, Overrides{})
+	close(setupDone)
 	if err != nil {
+		if setupCtx.Err() != nil && ctx.Err() == nil {
+			return 3
+		}
 		fmt.Fprintln(stdio.Err, "[ant] "+formatError(err))
 		return exitCodeForError(err)
 	}
+	if setupCtx.Err() != nil && ctx.Err() == nil {
+		_ = app.Close()
+		return 3
+	}
 	defer app.Close()
 
-	code := app.Run(ctx)
+	// serve 是长期进程，SIGINT/SIGTERM 直接取消 Serve；普通命令把信号交给
+	// App，以便第一次 Ctrl-C 只中断当前 turn 而保留 REPL。
+
+	runCtx := ctx
+	if app.opts.command == "serve" {
+		serveCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			select {
+			case <-sigCh:
+				cancel()
+			case <-serveCtx.Done():
+			}
+		}()
+		runCtx = serveCtx
+	} else {
+		app.sigCh = sigCh
+	}
+
+	code := app.Run(runCtx)
 	// serve 是长期进程：SIGINT/SIGTERM 是正常停止方式，退出码保持 0（§22.9.4）。
 	if ctx.Err() != nil && code == 0 && app.opts.command != "serve" {
 		code = 3
@@ -707,18 +754,25 @@ func (a *App) Run(ctx context.Context) int {
 	// 断点续传：CLI 先继续未完成的 turn，再处理新输入（§21.16.1）。
 	// Web 的显式新输入不自动重试已经写 turn_completed 的 failed/interrupted
 	// turn；真正未完成的 turn（例如进程崩溃）仍先恢复，避免留下半截状态。
+	//
+	// 裸 TTY 启动（无 prompt）必须先进入 REPL：自动续跑旧 turn 会在提示符出现
+	// 前发起模型请求，看起来像“卡住”，也违反 §3.1“没有参数时进入 REPL”。
+	interactiveREPL := a.opts.prompt == "" && a.stdio.IsTTY
 	skipCompletedResume := a.skipResume && a.opts.prompt != "" &&
 		a.resumed != nil && a.resumed.Last == model.EventTurnCompleted
-	if a.resumed != nil && shouldResume(a.resumed) && !skipCompletedResume {
-		res, err := a.engine.ResumeTurn(ctx, resumeState(a.resumed))
+	if a.resumed != nil && shouldResume(a.resumed) && !skipCompletedResume && !interactiveREPL {
+		turnCtx, stopInterrupt := a.interruptibleCtx(ctx)
+		res, err := a.engine.ResumeTurn(turnCtx, resumeState(a.resumed))
+		interrupted := stopInterrupt()
 		if err != nil {
 			a.render.Notice("恢复失败：" + formatError(err))
 			a.updateMeta(session.StatusFailed, model.Usage{})
 			return exitCodeForError(err)
 		}
+		a.lastTurnInterrupted = interrupted || res.Status == statemachine.StatusInterrupted
 		a.finishTurn(res)
 		a.resumed = nil
-		if a.opts.prompt == "" && !a.stdio.IsTTY {
+		if interrupted || res.Status == statemachine.StatusInterrupted {
 			return res.ExitCode
 		}
 	}
@@ -751,7 +805,14 @@ func (a *App) repl(ctx context.Context) int {
 	}
 	for {
 		fmt.Fprint(a.stdio.Out, "\nant> ")
-		line, err := a.reader.ReadString('\n')
+		line, err := a.readPromptLine(ctx)
+		if err == errInterruptAtPrompt {
+			fmt.Fprintln(a.stdio.Out)
+			if a.lastTurnInterrupted {
+				return 3
+			}
+			return 0
+		}
 		if err != nil && strings.TrimSpace(line) == "" {
 			fmt.Fprintln(a.stdio.Out)
 			return 0
@@ -780,6 +841,67 @@ func (a *App) repl(ctx context.Context) int {
 		if err != nil {
 			return 0
 		}
+	}
+}
+
+// errInterruptAtPrompt 表示用户在 REPL 提示符处按下了中断键。
+var errInterruptAtPrompt = errors.New("interrupt at prompt")
+
+// readPromptLine 读取一行输入，同时允许信号/根 ctx 在阻塞读时结束 REPL。
+// 读取 goroutine 在退出时仍可能短暂阻塞在 ReadString；此时进程即将退出，
+// 不做额外处理（也避免为了取消一次终端读而破坏共享 reader 的状态）。
+func (a *App) readPromptLine(ctx context.Context) (string, error) {
+	type result struct {
+		line string
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		line, err := a.reader.ReadString('\n')
+		ch <- result{line: line, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-a.sigCh:
+		return "", errInterruptAtPrompt
+	case r := <-ch:
+		return r.line, r.err
+	}
+}
+
+// interruptibleCtx 为一次 turn 派生可取消 ctx，并在 turn 运行期间消费一次
+// SIGINT/SIGTERM。stop 返回该 turn 是否被用户信号中断。
+func (a *App) interruptibleCtx(ctx context.Context) (context.Context, func() bool) {
+	turnCtx, cancel := context.WithCancel(ctx)
+	if a.sigCh == nil {
+		return turnCtx, func() bool {
+			cancel()
+			return false
+		}
+	}
+	done := make(chan struct{})
+	exited := make(chan struct{})
+	var mu sync.Mutex
+	interrupted := false
+	go func() {
+		defer close(exited)
+		select {
+		case <-a.sigCh:
+			mu.Lock()
+			interrupted = true
+			mu.Unlock()
+			cancel()
+		case <-done:
+		}
+	}()
+	return turnCtx, func() bool {
+		close(done)
+		<-exited
+		cancel()
+		mu.Lock()
+		defer mu.Unlock()
+		return interrupted
 	}
 }
 
@@ -899,9 +1021,11 @@ func (a *App) runTurn(ctx context.Context, input string) int {
 	}
 	started := time.Now()
 	turn := a.sess.Meta().TurnCount + 1
-	res, err := a.engine.RunTurn(ctx, statemachine.TurnInput{
+	turnCtx, stopInterrupt := a.interruptibleCtx(ctx)
+	res, err := a.engine.RunTurn(turnCtx, statemachine.TurnInput{
 		UserInput: input, History: a.history, Summary: a.summary, Turn: turn,
 	})
+	interrupted := stopInterrupt()
 	if err != nil {
 		a.render.Notice(formatError(err))
 		code := exitCodeForError(err)
@@ -920,9 +1044,11 @@ func (a *App) runTurn(ctx context.Context, input string) int {
 				failure.PlanPath = path
 			}
 		}
+		a.lastTurnInterrupted = interrupted || model.ClassOf(err) == model.ErrInterrupted
 		a.finishTurn(failure)
 		return code
 	}
+	a.lastTurnInterrupted = interrupted || res.Status == statemachine.StatusInterrupted
 	a.finishTurn(res)
 	return res.ExitCode
 }
