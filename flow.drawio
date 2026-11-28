@@ -1,0 +1,429 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="465-MVbjPoLWPu96i1dA" name="第 1 页">
+    <mxGraphModel dx="2342" dy="1656" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0" adaptiveColors="auto">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="UserInput" parent="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=10;whiteSpace=wrap;html=1;fillColor=#E7F6EC;strokeColor=#8BCB9F;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="用户输入&lt;br&gt;Prompt / 任务" vertex="1">
+          <mxGeometry height="80" width="198" x="16" y="3" as="geometry" />
+        </mxCell>
+        <mxCell id="CLI" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEF4FF;strokeColor=#9DB8F2;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="CLI 入口&lt;br&gt;cmd/ant → cli.Run" vertex="1">
+          <mxGeometry height="85" width="226" x="2" y="121" as="geometry" />
+        </mxCell>
+        <mxCell id="ArgsParse" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEF4FF;strokeColor=#9DB8F2;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="参数解析&lt;br&gt;Flags / 子命令 / REPL" vertex="1">
+          <mxGeometry height="85" width="226" x="2" y="245" as="geometry" />
+        </mxCell>
+        <mxCell id="ModeSelect" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="模式选择&lt;br&gt;code/plan/ask/council" vertex="1">
+          <mxGeometry height="90" width="230" y="378" as="geometry" />
+        </mxCell>
+        <mxCell id="ConfigLoad" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEF4FF;strokeColor=#9DB8F2;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="配置加载&lt;br&gt;internal/config&lt;br&gt;深合并+校验+密钥打码" vertex="1">
+          <mxGeometry height="85" width="226" x="2" y="517" as="geometry" />
+        </mxCell>
+        <mxCell id="PromptBuild" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEF4FF;strokeColor=#9DB8F2;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="Prompt 构建&lt;br&gt;internal/prompt&lt;br&gt;稳定前缀→易变尾部+缓存" vertex="1">
+          <mxGeometry height="85" width="226" x="2" y="640" as="geometry" />
+        </mxCell>
+        <mxCell id="ModelSelect" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEF4FF;strokeColor=#9DB8F2;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="模型选择&lt;br&gt;internal/model&lt;br&gt;别名解析+能力校验" vertex="1">
+          <mxGeometry height="85" width="226" x="2" y="761" as="geometry" />
+        </mxCell>
+        <mxCell id="ProviderInit" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEF4FF;strokeColor=#9DB8F2;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="Provider 初始化&lt;br&gt;internal/provider&lt;br&gt;Registry+Router+Client" vertex="1">
+          <mxGeometry height="85" width="226" x="2" y="882" as="geometry" />
+        </mxCell>
+        <mxCell id="SessionInit" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3EEFF;strokeColor=#B9A6F0;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="Session 初始化&lt;br&gt;internal/session&lt;br&gt;事件溯源+心跳锁+恢复" vertex="1">
+          <mxGeometry height="85" width="226" x="2" y="1003" as="geometry" />
+        </mxCell>
+        <mxCell id="SessionResume" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="断点续传?&lt;br&gt;ResumeState" vertex="1">
+          <mxGeometry height="90" width="230" y="1124" as="geometry" />
+        </mxCell>
+        <mxCell id="StateMachine" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3EEFF;strokeColor=#B9A6F0;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="状态机引擎&lt;br&gt;internal/statemachine&lt;br&gt;4张内置图+Plan Gate" vertex="1">
+          <mxGeometry height="85" width="226" x="512" as="geometry" />
+        </mxCell>
+        <mxCell id="TurnStart" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3EEFF;strokeColor=#B9A6F0;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="Turn 开始&lt;br&gt;TurnInput 构建" vertex="1">
+          <mxGeometry height="85" width="226" x="512" y="121" as="geometry" />
+        </mxCell>
+        <mxCell id="AgentLoop" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF0E5;strokeColor=#F0B48A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="Agent 核心循环&lt;br&gt;internal/agent&lt;br&gt;5节点共享baseNode" vertex="1">
+          <mxGeometry height="85" width="226" x="512" y="245" as="geometry" />
+        </mxCell>
+        <mxCell id="NodeCode" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF0E5;strokeColor=#F0B48A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="Code 节点&lt;br&gt;代码生成/修改" vertex="1">
+          <mxGeometry height="85" width="226" x="512" y="381" as="geometry" />
+        </mxCell>
+        <mxCell id="NodePlan" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF0E5;strokeColor=#F0B48A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="Plan 节点&lt;br&gt;任务规划+plan.md落盘" vertex="1">
+          <mxGeometry height="85" width="226" x="766" y="245" as="geometry" />
+        </mxCell>
+        <mxCell id="NodeAsk" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF0E5;strokeColor=#F0B48A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="Ask 节点&lt;br&gt;问答交互" vertex="1">
+          <mxGeometry height="85" width="226" x="766" y="381" as="geometry" />
+        </mxCell>
+        <mxCell id="NodeCouncil" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF0E5;strokeColor=#F0B48A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="Council 节点&lt;br&gt;多Agent协作决策" vertex="1">
+          <mxGeometry height="85" width="226" x="766" y="517" as="geometry" />
+        </mxCell>
+        <mxCell id="NodeVerify" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF0E5;strokeColor=#F0B48A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="Verify 节点&lt;br&gt;输出契约校验" vertex="1">
+          <mxGeometry height="85" width="226" x="766" y="640" as="geometry" />
+        </mxCell>
+        <mxCell id="ToolExec" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="工具执行引擎&lt;br&gt;internal/tool&lt;br&gt;权限+路径守卫+审批+并发" vertex="1">
+          <mxGeometry height="85" width="226" x="766" y="761" as="geometry" />
+        </mxCell>
+        <mxCell id="ToolRead" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="read&lt;br&gt;读取文件" vertex="1">
+          <mxGeometry height="85" width="226" x="766" y="882" as="geometry" />
+        </mxCell>
+        <mxCell id="ToolReadCode" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="read_code&lt;br&gt;Go符号索引+依赖分析" vertex="1">
+          <mxGeometry height="85" width="226" x="1020" y="761" as="geometry" />
+        </mxCell>
+        <mxCell id="ToolSearch" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="search&lt;br&gt;代码/文本搜索" vertex="1">
+          <mxGeometry height="85" width="226" x="512" y="761" as="geometry" />
+        </mxCell>
+        <mxCell id="ToolEdit" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="edit&lt;br&gt;部分hunk匹配+原子写" vertex="1">
+          <mxGeometry height="85" width="226" x="1020" y="882" as="geometry" />
+        </mxCell>
+        <mxCell id="ToolWrite" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="write&lt;br&gt;创建/覆盖文件" vertex="1">
+          <mxGeometry height="85" width="226" x="1020" y="1003" as="geometry" />
+        </mxCell>
+        <mxCell id="ToolBash" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="bash&lt;br&gt;命令执行+超时" vertex="1">
+          <mxGeometry height="85" width="226" x="1020" y="1127" as="geometry" />
+        </mxCell>
+        <mxCell id="ToolAsk" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="ask&lt;br&gt;用户交互询问" vertex="1">
+          <mxGeometry height="85" width="226" x="1570" as="geometry" />
+        </mxCell>
+        <mxCell id="ContextMgmt" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDECEC;strokeColor=#EBA3A3;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="上下文管理&lt;br&gt;internal/context&lt;br&gt;预算+压缩+成本计算" vertex="1">
+          <mxGeometry height="85" width="226" x="1276" y="245" as="geometry" />
+        </mxCell>
+        <mxCell id="TokenBudget" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="Token预算&lt;br&gt;是否超限?" vertex="1">
+          <mxGeometry height="90" width="230" x="1274" y="378" as="geometry" />
+        </mxCell>
+        <mxCell id="Compress" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDECEC;strokeColor=#EBA3A3;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="上下文压缩&lt;br&gt;摘要+截断+配对安全" vertex="1">
+          <mxGeometry height="85" width="226" x="1276" y="517" as="geometry" />
+        </mxCell>
+        <mxCell id="ProjectCtx" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3EEFF;strokeColor=#B9A6F0;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="项目上下文&lt;br&gt;internal/projectctx&lt;br&gt;扫描+模型摘要+Hash失效" vertex="1">
+          <mxGeometry height="85" width="226" x="258" y="1003" as="geometry" />
+        </mxCell>
+        <mxCell id="ApprovalGate" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDECEC;strokeColor=#EBA3A3;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="审批网关&lt;br&gt;internal/approval&lt;br&gt;硬拒绝+Grants+分级" vertex="1">
+          <mxGeometry height="85" width="226" x="1570" y="121" as="geometry" />
+        </mxCell>
+        <mxCell id="ApprovalPrompt" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="需要审批?&lt;br&gt;用户确认" vertex="1">
+          <mxGeometry height="90" width="230" x="1568" y="242" as="geometry" />
+        </mxCell>
+        <mxCell id="FaultTolerance" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDECEC;strokeColor=#EBA3A3;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="容错重试&lt;br&gt;internal/agent+statemachine&lt;br&gt;JSON修复+循环检测+降级" vertex="1">
+          <mxGeometry height="85" width="226" x="1570" y="381" as="geometry" />
+        </mxCell>
+        <mxCell id="RetryLoop" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF6E0;strokeColor=#E8C36A;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="重试? 指数退避" vertex="1">
+          <mxGeometry height="90" width="230" x="1568" y="514" as="geometry" />
+        </mxCell>
+        <mxCell id="Observability" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2F4F7;strokeColor=#B8C0CC;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="可观测性&lt;br&gt;internal/logx+trace&lt;br&gt;NDJSON+用量聚合+Export" vertex="1">
+          <mxGeometry height="85" width="226" x="1570" y="640" as="geometry" />
+        </mxCell>
+        <mxCell id="FinalOutput" parent="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=10;whiteSpace=wrap;html=1;fillColor=#E7F6EC;strokeColor=#8BCB9F;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="最终输出&lt;br&gt;代码变更/计划/回答/报告" vertex="1">
+          <mxGeometry height="80" width="198" x="1584" y="764" as="geometry" />
+        </mxCell>
+        <mxCell id="Export" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2F4F7;strokeColor=#B8C0CC;fontColor=#1B1F24;fontSize=16;strokeWidth=2;" value="ant export&lt;br&gt;HTML/Markdown离线报告" vertex="1">
+          <mxGeometry height="85" width="226" x="1570" y="882" as="geometry" />
+        </mxCell>
+        <mxCell id="UserInput-CLI" edge="1" parent="1" source="UserInput" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="CLI">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="CLI-ArgsParse" edge="1" parent="1" source="CLI" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ArgsParse">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ArgsParse-ModeSelect" edge="1" parent="1" source="ArgsParse" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ModeSelect">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ModeSelect-ConfigLoad" edge="1" parent="1" source="ModeSelect" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;labelPlacement=auto;" target="ConfigLoad" value="code">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ModeSelect-ConfigLoad_2" edge="1" parent="1" source="ModeSelect" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;labelPlacement=auto;" target="ConfigLoad" value="plan">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ModeSelect-ConfigLoad_3" edge="1" parent="1" source="ModeSelect" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;labelPlacement=auto;" target="ConfigLoad" value="ask">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ModeSelect-ConfigLoad_4" edge="1" parent="1" source="ModeSelect" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;labelPlacement=auto;" target="ConfigLoad" value="council">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ConfigLoad-PromptBuild" edge="1" parent="1" source="ConfigLoad" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="PromptBuild">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="PromptBuild-ModelSelect" edge="1" parent="1" source="PromptBuild" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ModelSelect">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ModelSelect-ProviderInit" edge="1" parent="1" source="ModelSelect" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ProviderInit">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ProviderInit-SessionInit" edge="1" parent="1" source="ProviderInit" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="SessionInit">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="SessionInit-SessionResume" edge="1" parent="1" source="SessionInit" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="SessionResume">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="SessionResume-StateMachine" edge="1" parent="1" source="SessionResume" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;labelPlacement=auto;" target="StateMachine" value="新建">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="371" y="1169" />
+              <mxPoint x="371" y="42.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="SessionResume-StateMachine_2" edge="1" parent="1" source="SessionResume" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;labelPlacement=auto;" target="StateMachine" value="恢复">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="315" y="1169" />
+              <mxPoint x="315" y="42.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="StateMachine-TurnStart" edge="1" parent="1" source="StateMachine" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="TurnStart">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="TurnStart-AgentLoop" edge="1" parent="1" source="TurnStart" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="AgentLoop">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="AgentLoop-NodeCode" edge="1" parent="1" source="AgentLoop" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="NodeCode">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="AgentLoop-NodePlan" edge="1" parent="1" source="AgentLoop" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="NodePlan">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="AgentLoop-NodeAsk" edge="1" parent="1" source="AgentLoop" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="NodeAsk">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="752" y="287.5" />
+              <mxPoint x="752" y="423.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="AgentLoop-NodeCouncil" edge="1" parent="1" source="AgentLoop" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="NodeCouncil">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="488" y="287.5" />
+              <mxPoint x="488" y="559.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="AgentLoop-NodeVerify" edge="1" parent="1" source="AgentLoop" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="NodeVerify">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="472" y="287.5" />
+              <mxPoint x="472" y="682.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="NodeCode-ToolExec" edge="1" parent="1" source="NodeCode" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ToolExec">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="752" y="423.5" />
+              <mxPoint x="752" y="803.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="NodePlan-ToolExec" edge="1" parent="1" source="NodePlan" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ToolExec">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1016" y="287.5" />
+              <mxPoint x="1016" y="803.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="NodeAsk-ToolExec" edge="1" parent="1" source="NodeAsk" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ToolExec">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NodeCouncil-ToolExec" edge="1" parent="1" source="NodeCouncil" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ToolExec">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NodeVerify-ToolExec" edge="1" parent="1" source="NodeVerify" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ToolExec">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ToolExec-ToolRead" edge="1" parent="1" source="ToolExec" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ToolRead">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ToolExec-ToolReadCode" edge="1" parent="1" source="ToolExec" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ToolReadCode">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ToolExec-ToolSearch" edge="1" parent="1" source="ToolExec" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ToolSearch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ToolExec-ToolEdit" edge="1" parent="1" source="ToolExec" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ToolEdit">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1006" y="803.5" />
+              <mxPoint x="1006" y="924.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ToolExec-ToolWrite" edge="1" parent="1" source="ToolExec" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ToolWrite">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1000" y="803.5" />
+              <mxPoint x="1000" y="1045.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ToolExec-ToolBash" edge="1" parent="1" source="ToolExec" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ToolBash">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1000" y="803.5" />
+              <mxPoint x="1000" y="1169.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ToolExec-ToolAsk" edge="1" parent="1" source="ToolExec" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ToolAsk">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1165" y="803.5" />
+              <mxPoint x="1165" y="42.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ToolRead-ApprovalGate" edge="1" parent="1" source="ToolRead" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ApprovalGate">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1836" y="924.5" />
+              <mxPoint x="1836" y="163.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ToolReadCode-ApprovalGate" edge="1" parent="1" source="ToolReadCode" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ApprovalGate">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1133" y="163.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ToolSearch-ApprovalGate" edge="1" parent="1" source="ToolSearch" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ApprovalGate">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="472" y="803.5" />
+              <mxPoint x="472" y="163.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ToolEdit-ApprovalGate" edge="1" parent="1" source="ToolEdit" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ApprovalGate">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1836" y="924.5" />
+              <mxPoint x="1836" y="163.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ToolWrite-ApprovalGate" edge="1" parent="1" source="ToolWrite" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ApprovalGate">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1836" y="1045.5" />
+              <mxPoint x="1836" y="163.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ToolBash-ApprovalGate" edge="1" parent="1" source="ToolBash" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ApprovalGate">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1836" y="1169.5" />
+              <mxPoint x="1836" y="163.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ToolAsk-ApprovalGate" edge="1" parent="1" source="ToolAsk" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ApprovalGate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ApprovalGate-ApprovalPrompt" edge="1" parent="1" source="ApprovalGate" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ApprovalPrompt">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ApprovalPrompt-ContextMgmt" edge="1" parent="1" source="ApprovalPrompt" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.494;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;verticalAlign=bottom;labelPlacement=auto;" target="ContextMgmt" value="通过">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ApprovalPrompt-FaultTolerance" edge="1" parent="1" source="ApprovalPrompt" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;labelPlacement=auto;" target="FaultTolerance" value="拒绝">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ContextMgmt-TokenBudget" edge="1" parent="1" source="ContextMgmt" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="TokenBudget">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="TokenBudget-Compress" edge="1" parent="1" source="TokenBudget" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;labelPlacement=auto;" target="Compress" value="超限">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="TokenBudget-AgentLoop" edge="1" parent="1" source="TokenBudget" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;labelPlacement=auto;" target="AgentLoop" value="正常">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1389" y="354" />
+              <mxPoint x="625" y="354" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Compress-AgentLoop" edge="1" parent="1" source="Compress" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="AgentLoop">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1389" y="626" />
+              <mxPoint x="625" y="626" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="SessionInit-ProjectCtx" edge="1" parent="1" source="SessionInit" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ProjectCtx">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ProjectCtx-ContextMgmt" edge="1" parent="1" source="ProjectCtx" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="ContextMgmt">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="371" y="221" />
+              <mxPoint x="1389" y="221" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FaultTolerance-RetryLoop" edge="1" parent="1" source="FaultTolerance" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="RetryLoop">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RetryLoop-AgentLoop" edge="1" parent="1" source="RetryLoop" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;labelPlacement=auto;" target="AgentLoop" value="是">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1683" y="628" />
+              <mxPoint x="625" y="628" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="RetryLoop-FinalOutput" edge="1" parent="1" source="RetryLoop" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;labelPlacement=auto;" target="FinalOutput" value="否/耗尽">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1822" y="559" />
+              <mxPoint x="1822" y="804" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="AgentLoop-FinalOutput" edge="1" parent="1" source="AgentLoop" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="FinalOutput">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="625" y="634" />
+              <mxPoint x="1683" y="634" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="NodeVerify-FinalOutput" edge="1" parent="1" source="NodeVerify" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="FinalOutput">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1288" y="682.5" />
+              <mxPoint x="1288" y="804" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="StateMachine-Observability" edge="1" parent="1" source="StateMachine" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;dashed=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="Observability">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1154" y="42.5" />
+              <mxPoint x="1154" y="682.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="AgentLoop-Observability" edge="1" parent="1" source="AgentLoop" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;dashed=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="Observability">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="488" y="287.5" />
+              <mxPoint x="488" y="682.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ToolExec-Observability" edge="1" parent="1" source="ToolExec" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;dashed=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="Observability">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="879" y="743" />
+              <mxPoint x="1683" y="743" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FinalOutput-Export" edge="1" parent="1" source="FinalOutput" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A94A6;fontColor=#5A626E;fontSize=14;endArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" target="Export">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

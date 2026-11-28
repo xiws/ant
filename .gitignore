@@ -42,5 +42,6 @@ bin/
 .ant/project.lock
 ant
 .codewhale
+.dsh-plugins
 
 #Tailwind CSS + HTMX + Alpine.js
