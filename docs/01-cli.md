@@ -32,7 +32,7 @@ ant help
 | `ant sessions` | 列出当前 workspace 的 session | 支持 `--json`、`--limit`、`--mode`、`--status` |
 | `ant show <id>` | 查看单个 session 摘要 | 接受 ID 短前缀；显示 turns、usage、审批记录、产物路径；`--events` 查看事件流 |
 | `ant export [id]` | 导出完整调试链路 | 省略 id 时导出最近 session；`--format html\|md`；`-o -` 写 stdout；`--events` 附原始事件；默认写 session 目录的 `trace.html` |
-| `ant init [--force]` | 生成/重新生成项目上下文 | `--force` 忽略 hash |
+| `ant init [--force]` | 创建空白项目上下文；`--force` 重新生成骨架 | `--force` 忽略 hash，覆盖无标记手写内容前先备份 |
 | `ant models` | 列出模型别名与能力 | 不显示密钥；标记默认模型与不可用模型 |
 | `ant config` | 打印合并后的配置 | 每个键标注来源（home/workspace/cli）；密钥打码 |
 | `ant serve` | 启动本地只读 Web（§22） | 默认 `127.0.0.1:7788`；只监听回环；不打开/创建 session；不取锁 |

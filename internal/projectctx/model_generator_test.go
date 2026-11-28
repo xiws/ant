@@ -45,7 +45,7 @@ func TestEnsureUsesModelSummary(t *testing.T) {
 - go test ./... 通过
 `)
 	b := NewBuilder(cfg, fp, nil)
-	doc, err := b.Ensure(context.Background(), EnsureOptions{})
+	doc, err := b.Ensure(context.Background(), EnsureOptions{Explicit: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestEnsureFallsBackWhenModelOutputInvalid(t *testing.T) {
 	cfg.settings.DefaultModel = "demo-model"
 	fp := fake.New().QueueText("这不是合法的项目上下文")
 	b := NewBuilder(cfg, fp, nil)
-	doc, err := b.Ensure(context.Background(), EnsureOptions{})
+	doc, err := b.Ensure(context.Background(), EnsureOptions{Explicit: true})
 	if err != nil {
 		t.Fatal(err)
 	}

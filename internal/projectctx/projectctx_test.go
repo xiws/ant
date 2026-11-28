@@ -95,13 +95,13 @@ func newWorkspace(t *testing.T) (string, fakeView) {
 	return root, fakeView{workDir: root, settings: testSettings()}
 }
 
-func TestEnsureGeneratesProjectDocAndMeta(t *testing.T) {
+func TestEnsureExplicitInitGeneratesDocAndMeta(t *testing.T) {
 	ctx := context.Background()
 	root, cfg := newWorkspace(t)
 	b := NewBuilder(cfg, nil, nil)
 
 	var stages []string
-	doc, err := b.Ensure(ctx, EnsureOptions{Progress: func(stage string) { stages = append(stages, stage) }})
+	doc, err := b.Ensure(ctx, EnsureOptions{Explicit: true, Progress: func(stage string) { stages = append(stages, stage) }})
 	if err != nil {
 		t.Fatalf("Ensure 首次生成失败: %v", err)
 	}
@@ -256,12 +256,12 @@ func TestEnsureSkipsWhenHashUnchanged(t *testing.T) {
 	}
 }
 
-func TestEnsureRegeneratesAndPreservesManualEdits(t *testing.T) {
+func TestEnsureExplicitInitRegeneratesAndPreservesManualEdits(t *testing.T) {
 	ctx := context.Background()
 	root, cfg := newWorkspace(t)
 	b := NewBuilder(cfg, nil, nil)
 
-	doc1, err := b.Ensure(ctx, EnsureOptions{})
+	doc1, err := b.Ensure(ctx, EnsureOptions{Explicit: true})
 	if err != nil {
 		t.Fatalf("首次 Ensure 失败: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestEnsureRegeneratesAndPreservesManualEdits(t *testing.T) {
 	// 修改关键清单（README）触发 hash 变化。
 	writeFile(t, filepath.Join(root, "README.md"), "# Demo 项目 v2\n\n更新后的说明。\n")
 
-	doc2, err := b.Ensure(ctx, EnsureOptions{})
+	doc2, err := b.Ensure(ctx, EnsureOptions{Explicit: true})
 	if err != nil {
 		t.Fatalf("hash 变化后 Ensure 失败: %v", err)
 	}
@@ -315,8 +315,8 @@ func TestEnsureForceOverwritesWithoutMarkers(t *testing.T) {
 	manual := "# 我的笔记\n\n完全手写的 project.md，没有任何生成标记。\n"
 	writeFile(t, doc1.Path, manual)
 
-	// 无标记 + 非 Force：视为用户接管，不覆盖。
-	doc2, err := b.Ensure(ctx, EnsureOptions{})
+	// 无标记 + 显式 init（非 Force）：视为用户接管，不覆盖。
+	doc2, err := b.Ensure(ctx, EnsureOptions{Explicit: true})
 	if err != nil {
 		t.Fatalf("无标记 Ensure 失败: %v", err)
 	}
@@ -456,6 +456,96 @@ func TestEnsureWithoutWorkspaceReturnsConfigInvalid(t *testing.T) {
 	}
 	if class := model.ClassOf(err); class != model.ErrConfigInvalid {
 		t.Fatalf("错误分类 = %q, 期望 %q（err: %v）", class, model.ErrConfigInvalid, err)
+	}
+}
+
+func TestEnsureAutoCreatesBlankDocForManualFill(t *testing.T) {
+	ctx := context.Background()
+	root, cfg := newWorkspace(t)
+	b := NewBuilder(cfg, nil, nil)
+
+	doc, err := b.Ensure(ctx, EnsureOptions{})
+	if err != nil {
+		t.Fatalf("自动模式 Ensure 失败: %v", err)
+	}
+	want := filepath.Join(root, ".ant", projectDocName)
+	if doc.Path != want {
+		t.Fatalf("Doc.Path = %q, 期望 %q", doc.Path, want)
+	}
+	if doc.Body != "" {
+		t.Fatalf("自动模式不应代写正文，实际: %q", doc.Body)
+	}
+	if doc.FromModel {
+		t.Fatal("空白文件不应标记为模型生成")
+	}
+	info, err := os.Stat(want)
+	if err != nil {
+		t.Fatalf("project.md 未创建: %v", err)
+	}
+	if info.Size() != 0 {
+		t.Fatalf("project.md 应为空白文件，实际 %d 字节", info.Size())
+	}
+
+	var meta metaFile
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(root, ".ant", projectMetaName))), &meta); err != nil {
+		t.Fatalf("解析 project.meta.json: %v", err)
+	}
+	if meta.Model != manualModel {
+		t.Errorf("meta.model = %q, 期望 %q", meta.Model, manualModel)
+	}
+	if !strings.HasPrefix(meta.Hash, "sha256:") {
+		t.Errorf("meta.hash = %q, 期望 sha256: 前缀", meta.Hash)
+	}
+	if meta.GitCommit != "1234567" {
+		t.Errorf("meta.gitCommit = %q, 期望 1234567", meta.GitCommit)
+	}
+}
+
+func TestEnsureAutoKeepsUserContentAfterCommit(t *testing.T) {
+	ctx := context.Background()
+	root, cfg := newWorkspace(t)
+	b := NewBuilder(cfg, nil, nil)
+
+	if _, err := b.Ensure(ctx, EnsureOptions{}); err != nil {
+		t.Fatalf("首次 Ensure 失败: %v", err)
+	}
+	docPath := filepath.Join(root, ".ant", projectDocName)
+	userDoc := "# 项目上下文\n\n用户手填的说明，自动模式不得覆盖。\n"
+	writeFile(t, docPath, userDoc)
+
+	// 模拟一次提交：git HEAD 与关键文件同时变化，hash 必然失效。
+	writeFile(t, filepath.Join(root, ".git", "refs", "heads", "main"), "abcdefabcdefabcdefabcdefabcdefabcdefabcd\n")
+	writeFile(t, filepath.Join(root, "README.md"), "# Demo 项目 v2\n\n更新后的说明。\n")
+
+	doc, err := b.Ensure(ctx, EnsureOptions{})
+	if err != nil {
+		t.Fatalf("hash 失效后 Ensure 失败: %v", err)
+	}
+	if doc.Body != userDoc {
+		t.Fatalf("自动模式改写了用户内容，实际: %q", doc.Body)
+	}
+	if disk := readFile(t, docPath); disk != userDoc {
+		t.Fatalf("磁盘内容被改写: %q", disk)
+	}
+
+	var meta metaFile
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(root, ".ant", projectMetaName))), &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Hash != doc.Hash {
+		t.Errorf("meta.hash 未随 hash 失效刷新: meta=%q doc=%q", meta.Hash, doc.Hash)
+	}
+	if meta.GitCommit != "abcdefa" {
+		t.Errorf("meta.gitCommit = %q, 期望 abcdefa", meta.GitCommit)
+	}
+
+	// meta 已刷新：再次运行直接复用，不再扫描/改写。
+	doc2, err := b.Ensure(ctx, EnsureOptions{})
+	if err != nil {
+		t.Fatalf("二次 Ensure 失败: %v", err)
+	}
+	if doc2.Body != userDoc || doc2.Hash != doc.Hash {
+		t.Fatal("hash 未变化时内容发生了改变")
 	}
 }
 

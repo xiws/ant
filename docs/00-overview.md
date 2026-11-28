@@ -31,7 +31,7 @@
 | Provider | 某一 API 协议的适配器，如 `openai-completions`、`otter` |
 | Model alias | `models[].name`，全局唯一，供 `-p`、`defaultModel`、`nodeModels` 使用 |
 | Compaction | 上下文超限时对历史消息做摘要/截断的过程 |
-| Project context | 自动生成并缓存的 `.ant/project.md` |
+| Project context | 首次自动创建、由用户手填的 `.ant/project.md` |
 | Plan gate | plan 模式验证通过后，询问用户是否切换到 code 模式执行的确认点 |
 | 副作用工具 | 会改变外部状态的工具：`write`、`edit`、`bash`（可能） |
 
@@ -109,7 +109,7 @@
 | Tool Runtime | 工具注册、参数校验、执行、截断、审批 | [§10](08-tools.md#10-工具系统) |
 | Approval | 风险分类与用户确认 | [§12](10-security.md#12-安全与审批) |
 | Context Manager | token 预算、压缩、缓存布局 | [§11](09-context.md#11-上下文与-token-管理) |
-| Project Context | 扫描与生成 `.ant/project.md` | [§14](12-project-context.md#14-项目级上下文自动初始化) |
+| Project Context | 创建/刷新 `.ant/project.md` 与 `project.meta.json` | [§14](12-project-context.md#14-项目级上下文自动初始化) |
 | Observability | 日志、NDJSON、用量与成本 | [§15](13-observability.md#15-可观测性与成本) |
 
 ### 2.2 架构图
@@ -155,7 +155,7 @@ flowchart TD
 
 1. CLI 解析参数，`Config` 加载 `$ANT_HOME` 与 `<workspace>/.ant` 并逐键合并、校验。
 2. CLI 选择 session：续最近一个、`-s` 指定、或 `--new` 新建；获取 session 锁。
-3. 选择模式与模型；若为新建且缺少项目上下文，触发 `.ant/project.md` 生成（[§14](12-project-context.md#14-项目级上下文自动初始化)）。
+3. 选择模式与模型；若为新建且缺少项目上下文，创建空白 `.ant/project.md`（用户手填，[§14](12-project-context.md#14-项目级上下文自动初始化)）。
 4. 状态机进入首个 step；`Prompt Assembler` 组装稳定前缀、摘要、最近消息与运行时信息。
 5. Provider 发起流式请求；文本增量直接渲染，`tool_calls` 按 `index` 累积，结束后统一解析。
 6. Tool Runtime 校验参数 → 审批（如需要）→ 并发/串行执行 → 截断/落 artifact → 按 `id` 回填 tool 消息。

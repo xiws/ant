@@ -353,7 +353,7 @@ const commandHelp = `ant show <session-id> [--events]   查看 session 摘要/�
 ant export [session-id] [--format html|md] [-o path|-] [--events]
                                    导出完整链路（prompt/请求/响应/工具结果）
 ant sessions [--limit N] [--mode M] [--status S] [--json]
-ant init [--force]               生成/刷新 .ant/project.md
+ant init [--force]               创建空白 .ant/project.md（--force 重新生成骨架）
 ant models                       列出模型别名与能力
 ant config                       打印合并后的配置（密钥打码）
 ant serve [--listen addr] [--open] 启动本地只读 Web（默认 127.0.0.1:7788）

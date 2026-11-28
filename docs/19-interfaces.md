@@ -1532,7 +1532,7 @@ func NewBuilder(cfg config.View, p provider.Provider, log logx.Logger) Builder
 type EnsureOptions struct {
 	Force        bool
 	SkipIfFresh  bool
-	Explicit     bool // `ant init`：project.autoInit=false 时也生成
+	Explicit     bool // `ant init`：显式生成骨架（project.autoInit=false 时也生效）
 	Progress     func(stage string)
 }
 
@@ -1574,7 +1574,8 @@ type Commands struct {
 ```
 
 - `Ensure` 幂等；`cli` 启动时**异步**调用（[§16.4](14-engineering.md#164-性能目标)），首轮沿用上一次的 `project.md`，刷新完成后下一轮生效。返回 `(Doc, error)`，错误非致命：`cli` 只 `Warn`，session 继续（[§14.7](12-project-context.md#147-失败处理)）。
-- 手改保护在 `Builder` 内实现：只替换 `<!-- ant:generated:start/end -->` 之间内容（[§14.5](12-project-context.md#145-用户手改保护)）。
+- 自动模式（session 启动 / hash 失效）从不改写已存在的 `project.md`，只在缺失时创建空白文件；
+- 手改保护在 `Builder` 内实现：显式生成时只替换 `<!-- ant:generated:start/end -->` 之间内容（[§14.5](12-project-context.md#145-用户手改保护)）。
 - `Generator` 使用内置 `project_init` prompt（不是 agent 节点），其 `provider` 调用同样经 `provider.Router`（含重试，但**不**计入节点用量，只记 session 用量）。
 - 并发：`.ant/project.lock`，后到进程等待或跳过，不覆盖正在写的文件。
 

@@ -18,7 +18,8 @@ type Builder interface {
 type EnsureOptions struct {
 	Force       bool
 	SkipIfFresh bool
-	// Explicit 表示用户显式执行 `ant init`：即使 project.autoInit=false 也应生成。
+	// Explicit 表示用户显式执行 `ant init`：即使 project.autoInit=false 也生成骨架。
+	// 自动模式（session 启动 / hash 失效）不生成正文，只在缺失时创建空白文件。
 	Explicit bool
 	Progress func(stage string)
 }

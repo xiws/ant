@@ -44,6 +44,10 @@ const (
 // deterministicModel 写入 project.meta.json 的 model 字段：确定性骨架没有调用模型。
 const deterministicModel = "deterministic"
 
+// manualModel 写入 project.meta.json 的 model 字段：自动模式只创建空白文件，
+// 正文由用户手填，没有任何生成器参与（§14.1）。
+const manualModel = "manual"
+
 type builder struct {
 	cfg      config.View
 	provider provider.Provider
@@ -101,8 +105,9 @@ func pathsFor(workDir string) projectPaths {
 	}
 }
 
-// Ensure 幂等地生成/刷新 project.md：hash 未变化时复用现有文件，失败返回 error
-// 但不 panic（组合根只 warning，§14.7）。并发由 `.ant/project.lock` 保护。
+// Ensure 幂等地保证 project.md 可用：自动模式下缺失时只创建空白文件供用户手填，
+// 已有内容绝不自动改写；显式 `ant init` / `--force` 才生成/刷新骨架（§14.1）。
+// 失败返回 error 但不 panic（组合根只 warning，§14.7）。并发由 `.ant/project.lock` 保护。
 func (b *builder) Ensure(ctx context.Context, opts EnsureOptions) (Doc, error) {
 	if b == nil {
 		return Doc{}, model.NewError(model.ErrInternal, "projectctx.nil_builder", "builder 未初始化")
@@ -156,8 +161,9 @@ func (b *builder) Ensure(ctx context.Context, opts EnsureOptions) (Doc, error) {
 		return Doc{}, fmt.Errorf("projectctx: 读取 %s 失败: %w", paths.doc, docErr)
 	}
 
-	// hash 未变化且已有内容：不重写（SkipIfFresh 真假行为一致，§14.2）。
-	if !opts.Force && hasMeta && meta.Hash == hash && hasDoc && strings.TrimSpace(existing) != "" {
+	// hash 未变化且 project.md 已存在：不重写（SkipIfFresh 真假行为一致，§14.2）。
+	// 不再要求正文非空：自动模式创建的空白文件同样视为有效产物。
+	if !opts.Force && hasMeta && meta.Hash == hash && hasDoc {
 		report(opts.Progress, "skip")
 		b.log.Debug("projectctx: hash 未变化，复用现有 project.md", "path", paths.doc, "hash", hash)
 		return docFromDisk(paths, existing, &meta), nil
@@ -179,7 +185,7 @@ func (b *builder) Ensure(ctx context.Context, opts EnsureOptions) (Doc, error) {
 	// 持锁后复查：期间可能有其它进程已完成同 hash 的生成。
 	if !opts.Force {
 		if meta2, ok, _ := loadMeta(paths.meta); ok && meta2.Hash == hash {
-			if current, curOK, curErr := loadFile(paths.doc); curErr == nil && curOK && strings.TrimSpace(current) != "" {
+			if current, curOK, curErr := loadFile(paths.doc); curErr == nil && curOK {
 				report(opts.Progress, "skip")
 				b.log.Debug("projectctx: 持锁复查发现内容已刷新，跳过写入", "hash", hash)
 				return docFromDisk(paths, current, &meta2), nil
@@ -187,22 +193,39 @@ func (b *builder) Ensure(ctx context.Context, opts EnsureOptions) (Doc, error) {
 		}
 	}
 
-	report(opts.Progress, "generate")
-	body, bytesSent, takeover, fromModel, modelName, genErr := b.buildBody(ctx, paths, scanRes, settings, existing, hasDoc, opts.Force)
-	if genErr != nil {
-		b.log.Warn("projectctx: 生成 project.md 失败", "workdir", workDir, "error", genErr)
-		return Doc{}, genErr
-	}
-	if takeover {
-		// 用户接管：不写盘也不更新 meta；hash 继续保持失效，下次仍提示。
-		report(opts.Progress, "skip")
-		return docFromDisk(paths, existing, metaPtr(hasMeta, meta)), nil
+	// 自动模式（session 启动 / hash 失效）不再代写正文：只在缺失时创建空白文件，
+	// 已存在的 project.md（含用户手填内容）永不被自动改写（§14.1）。
+	// 只有显式 `ant init` / `ant init --force` 才走生成流程。
+	generated := opts.Explicit || opts.Force
+	var (
+		body      string
+		bytesSent int
+		fromModel bool
+		modelName string
+	)
+	if generated {
+		report(opts.Progress, "generate")
+		var takeover bool
+		var genErr error
+		body, bytesSent, takeover, fromModel, modelName, genErr = b.buildBody(ctx, paths, scanRes, settings, existing, hasDoc, opts.Force)
+		if genErr != nil {
+			b.log.Warn("projectctx: 生成 project.md 失败", "workdir", workDir, "error", genErr)
+			return Doc{}, genErr
+		}
+		if takeover {
+			// 用户接管：不写盘也不更新 meta；hash 继续保持失效，下次仍提示。
+			report(opts.Progress, "skip")
+			return docFromDisk(paths, existing, metaPtr(hasMeta, meta)), nil
+		}
 	}
 
 	generatedAt := b.now().UTC().Truncate(time.Millisecond)
-	metaModel := deterministicModel
-	if fromModel && modelName != "" {
-		metaModel = modelName
+	metaModel := manualModel
+	if generated {
+		metaModel = deterministicModel
+		if fromModel && modelName != "" {
+			metaModel = modelName
+		}
 	}
 	out := metaFile{
 		SchemaVersion: metaSchemaVersion,
@@ -221,17 +244,29 @@ func (b *builder) Ensure(ctx context.Context, opts EnsureOptions) (Doc, error) {
 	rawMeta = append(rawMeta, '\n')
 
 	report(opts.Progress, "write")
-	// 用户删除标记后 Force 会整体覆盖：先把原内容备份为 project.md.bak，
-	// 避免 `ant init --force` 静默丢弃手写内容（§14.5 允许二选一）。
-	if hasDoc && opts.Force && !hasGeneratedMarkers(existing) {
-		if err := atomicWriteFile(paths.backup, []byte(existing), 0o644); err != nil {
-			b.log.Warn("projectctx: 备份 project.md 失败", "path", paths.backup, "error", err)
-			return Doc{}, fmt.Errorf("projectctx: 备份 %s 失败: %w", paths.backup, err)
+	switch {
+	case generated:
+		// 用户删除标记后 Force 会整体覆盖：先把原内容备份为 project.md.bak，
+		// 避免 `ant init --force` 静默丢弃手写内容（§14.5 允许二选一）。
+		if hasDoc && opts.Force && strings.TrimSpace(existing) != "" && !hasGeneratedMarkers(existing) {
+			if err := atomicWriteFile(paths.backup, []byte(existing), 0o644); err != nil {
+				b.log.Warn("projectctx: 备份 project.md 失败", "path", paths.backup, "error", err)
+				return Doc{}, fmt.Errorf("projectctx: 备份 %s 失败: %w", paths.backup, err)
+			}
 		}
-	}
-	if err := atomicWriteFile(paths.doc, []byte(body), 0o644); err != nil {
-		b.log.Warn("projectctx: 写入 project.md 失败", "path", paths.doc, "error", err)
-		return Doc{}, fmt.Errorf("projectctx: 写入 %s 失败: %w", paths.doc, err)
+		if err := atomicWriteFile(paths.doc, []byte(body), 0o644); err != nil {
+			b.log.Warn("projectctx: 写入 project.md 失败", "path", paths.doc, "error", err)
+			return Doc{}, fmt.Errorf("projectctx: 写入 %s 失败: %w", paths.doc, err)
+		}
+	case !hasDoc:
+		// 空白文件：0 字节，由用户自己填写（§14.1）。
+		if err := atomicWriteFile(paths.doc, nil, 0o644); err != nil {
+			b.log.Warn("projectctx: 创建空白 project.md 失败", "path", paths.doc, "error", err)
+			return Doc{}, fmt.Errorf("projectctx: 创建 %s 失败: %w", paths.doc, err)
+		}
+	default:
+		// 已有 project.md：保持原样，只刷新 meta（hash / gitCommit / 统计）。
+		body = existing
 	}
 	if err := atomicWriteFile(paths.meta, rawMeta, 0o644); err != nil {
 		b.log.Warn("projectctx: 写入 project.meta.json 失败", "path", paths.meta, "error", err)

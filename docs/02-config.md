@@ -17,7 +17,7 @@ $ANT_HOME/                      # 默认 ~/.ant，可用环境变量覆盖
 ├── settings.json
 ├── prompt.md
 ├── prompts/<node>.md
-├── project.md                  # 自动生成的项目上下文
+├── project.md                  # 项目上下文（首次自动创建空白，用户手填）
 ├── project.meta.json           # 生成时间、hash、git commit
 ├── sessions/<id>/              # 会话（不应提交 git）
 └── logs/

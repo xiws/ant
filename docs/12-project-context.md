@@ -1,14 +1,17 @@
 > 模块 12 / 19 · [返回索引](../README.md) · [上一模块](11-fault-tolerance.md) · [下一模块](13-observability.md)
 
-# 14. 项目级上下文自动初始化
+# 14. 项目级上下文初始化
 
 ## 14.1 目标与触发
 
-- 目标：首次进入项目时生成一份稳定、可复用的项目摘要，减少后续每次分析的成本，并作为 prompt 的稳定前缀。
-- 触发：
-  - session 启动时 `project.autoInit=true` 且 `.ant/project.md` 缺失；
-  - `project.meta.json` 的 hash 与当前项目不一致；
-  - 用户执行 `ant init` 或 `ant init --force`。
+- 目标：首次进入项目时**创建一个空白的 `.ant/project.md`**，项目背景由用户自己填写；ant 不再自动代写正文。
+- 触发（自动模式）：
+  - session 启动时 `project.autoInit=true` 且 `.ant/project.md` 缺失 → 创建 0 字节空白文件；
+  - `project.meta.json` 的 hash 与当前项目不一致（例如每次 git 提交后）→ 重新扫描并刷新 meta；
+    `project.md` 已存在则原样保留，不改写内容。
+- 显式触发：
+  - `ant init`：生成确定性/模型骨架（保留标记外的用户内容）；
+  - `ant init --force`：重新生成并整体覆盖（无标记内容先备份）。
 - 初始化失败不阻塞 session，只 warning。
 
 ## 14.2 失效判定（hash）
@@ -19,13 +22,16 @@
 {
   "schemaVersion": 1,
   "generatedAt": "2026-10-30T09:47:04.123Z",
-  "model": "deepseek-v4-flash",
+  "model": "manual",
   "gitCommit": "30f30d6",
   "hash": "sha256:...",
   "fileCount": 128,
-  "bytesSent": 24576
+  "bytesSent": 0
 }
 ```
+
+- `model`：`manual`（自动模式创建的空白文件）、`deterministic`（确定性骨架）或模型别名。
+- `bytesSent`：发送给模型的字节数；自动模式恒为 0。
 
 hash 输入（排序后拼接再 sha256）：
 
@@ -34,9 +40,25 @@ hash 输入（排序后拼接再 sha256）：
 - git HEAD（若存在）；
 - 生成器版本与 prompt 版本。
 
+hash 只用于判断“是否需要重新扫描/刷新 meta、是否需要补建空白文件”：
+
+- hash 与 meta 一致且 `project.md` 存在 → 直接复用，不写盘；
+- hash 不一致 → 刷新 meta；`project.md` 缺失时补建空白文件，已存在则不动；
+- `project.md` 自身的内容不参与 hash。
+
 **不**对每个文件内容做全量 hash：成本高且易因无关改动频繁失效；关键清单 + 文件树足以覆盖大多数结构性变化。
 
-## 14.3 生成流程
+## 14.3 流程
+
+自动模式（session 启动 / hash 失效）：
+
+1. **扫描** workspace（遵循 `.gitignore` 与内置排除）并计算 hash；
+2. hash 与 meta 一致且 `project.md` 存在 → 结束；
+3. 否则持 `.ant/project.lock` 后复查；
+4. `project.md` 缺失 → 原子写 0 字节空白文件；已存在 → 不改写；
+5. 原子写 `project.meta.json`（hash / gitCommit / generatedAt / fileCount / model=manual）。
+
+显式模式（`ant init` / `ant init --force`）：
 
 1. **扫描**：从 workspace 遍历，遵循 `.gitignore` + 内置排除（`.git`、`.ant`、`vendor`、`node_modules`、`bin`、`dist`）；跳过二进制、超大文件；上限 `maxFiles`。
 2. **确定性骨架**（不需要模型）：
@@ -57,6 +79,11 @@ hash 输入（排序后拼接再 sha256）：
 
 ## 14.4 `project.md` 格式
 
+- 默认是一个空白文件（0 字节），内容完全由用户维护。
+- 建议至少覆盖：项目用途、技术栈、目录结构、构建/测试/lint 命令、验收规则。
+- “验收规则”小节尤其重要：verifier 优先使用用户填写的项目特定通过标准（[§8.7](06-state-machine.md#87-验证标准)）。
+- `ant init` / `--force` 生成的骨架形如：
+
 ```markdown
 # 项目上下文
 
@@ -74,36 +101,35 @@ hash 输入（排序后拼接再 sha256）：
 ```
 
 - 所有节点都接收 `project.md`（截断到预算），作为稳定前缀的一部分。
-- “验收规则”小节允许用户填写项目特定的通过标准，verifier 优先使用（[§8.7](06-state-machine.md#87-验证标准)）。
 
 ## 14.5 用户手改保护
 
-- 自动生成内容必须包在 `<!-- ant:generated:start/end -->` 之间。
-- 重新生成只替换标记内内容，标记外用户内容原样保留。
+- **自动模式永不改写已存在的 `project.md`**：无论是否含标记、是否由模型生成，用户内容原样保留。
+- `ant init`（非 force）：重新生成只替换 `<!-- ant:generated:start/end -->` 标记块，标记外用户内容原样保留。
 - 如果用户删除了标记：
   - 视为用户完全接管；
   - 不再自动覆盖，只提示“project.md 已被手动修改，`ant init --force` 可重建”；
-  - `--force` 也只重建标记块，若仍无标记则整体覆盖前需二次确认。
+  - `--force` 整体覆盖前先把原内容备份为 `project.md.bak`。
 - 用户可以在标记外添加项目特有说明，持久保留。
 
 ## 14.6 隐私与成本
 
-- 不联网；只读本地文件。
-- 排除 `.env`、密钥文件、证书、大二进制、`node_modules`/`vendor`。
-- 发送给模型的只是骨架 + 关键文件摘要，上限 32 KB。
-- 每次 hash 变化只生成一次；`project.md` 作为稳定前缀复用，提升缓存命中。
-- 用户可 `project.autoInit=false` 关闭。
+- 自动模式不联网、不调用模型、不发送任何仓库内容；只读本地文件并创建空白文件。
+- 只有显式 `ant init` 才可能调用模型摘要（骨架 + 关键文件摘要，上限 32 KB）。
+- 不读取 `.env`、密钥文件、证书、大二进制、`node_modules`/`vendor`。
+- 用户可 `project.autoInit=false` 关闭自动初始化（此时连空白文件也不会自动创建，但仍可使用 `ant init`）。
 
 ## 14.7 失败处理
 
-- 扫描/模型失败：warning，session 继续，不带项目上下文。
-- 写入失败：warning，不阻塞。
-- 并发生成：后到进程等待或跳过，不覆盖正在写入的文件。
-- 生成的 `project.md` 含明显错误时，用户可手改或 `ant init --force`。
+- 扫描/写入失败：warning，session 继续，不带项目上下文。
+- 写入失败：warning，不阻塞；原子写保证不会留下半截文件。
+- 并发初始化：后到进程通过 `.ant/project.lock` 跳过，不覆盖正在写入的文件。
+- 需要重新开始：删除 `project.md`（下次自动补建空白文件）或 `ant init --force`（重新生成骨架）。
 
-> **设计理由**：这是“减少后续项目分析成本”的关键。但若每轮都重新分析，会反向烧钱并破坏缓存；用 hash 失效 + 一次性生成 + 稳定前缀，才同时满足成本与缓存。标记保护避免覆盖用户手写内容。
+> **设计理由**：项目背景属于用户的判断，自动生成容易与真实约定不符，且每次提交后重写会制造无意义的 churn。
+> 改为“自动只创建空白文件、显式 `ant init` 才生成骨架”，既保留上手引导，又让 `project.md` 成为稳定、可手填的 prompt 前缀。
 >
-> **备选方案**：每次启动重新生成（未采用：成本高、缓存失效）；完全手工维护（未采用：新项目上手成本高）。
+> **备选方案**：每次启动重新生成（未采用：成本高、缓存失效、覆盖用户内容）；完全手工维护且不创建文件（未采用：新项目不知道从哪里开始）。
 
 ---
 

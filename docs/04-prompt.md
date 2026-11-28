@@ -10,7 +10,7 @@
 | 2 | 模式 overlay（状态机指令、输出契约） | 内置 `prompts/modes/<mode>.md` | 否 |
 | 3 | 用户全局 prompt | home `.ant/prompt.md` | 否 |
 | 4 | 用户项目 prompt | workspace `.ant/prompt.md` | 否 |
-| 5 | 项目上下文 | `.ant/project.md`（≤ 8KB） | hash 变化时 |
+| 5 | 项目上下文 | `.ant/project.md`（≤ 8KB，用户手填） | 否（自动模式不改写） |
 | 6 | 工具定义 | 运行时生成，按名称排序 | 否 |
 | 7 | Session 压缩摘要 | 事件日志中的 `context_compacted` | 压缩时 |
 | 8 | 最近 N 轮消息 | session | 是 |
@@ -26,7 +26,7 @@
 | 模式 overlay | 内置 `internal/agent/prompts/modes/<mode>.md` | **不允许**覆盖（输出契约与状态机解析绑定） |
 | 用户全局 prompt | home `.ant/prompt.md` | 追加到内置之后 |
 | 用户项目 prompt | workspace `.ant/prompt.md` | 追加在 home 之后（项目更具体） |
-| 项目上下文 | `.ant/project.md` | 自动生成，受 [§14](12-project-context.md#14-项目级上下文自动初始化) 手改保护 |
+| 项目上下文 | `.ant/project.md` | 首次自动创建空白文件，由用户手填；`ant init` 可生成骨架（[§14](12-project-context.md#14-项目级上下文自动初始化)） |
 
 - 节点覆盖文件缺失时静默回落，不报错。
 - 覆盖文件为空时视为“显式清空该节点 prompt”（warning）。
